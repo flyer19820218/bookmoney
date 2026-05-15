@@ -12,7 +12,7 @@ import io
 st.set_page_config(page_title="全校通用購書單系統", layout="centered", page_icon="📚")
 
 st.title("📚 全校通用購書費通知單系統")
-st.markdown("只要貼上 Google 試算表網址，系統自動完成對帳、計算資優生差額，並排版成 2x2 的 A4 通知單！")
+st.markdown("確認下方 Google 試算表網址無誤後，系統將自動完成對帳、計算資優生差額，並排版成 2x2 的 A4 通知單！")
 st.divider()
 
 # ==========================================
@@ -174,12 +174,12 @@ def generate_excel(df_students, df_books):
 # ==========================================
 # 2. 介面互動區
 # ==========================================
-st.subheader("Step 1: 輸入 Google 試算表網址")
-st.info("⚠️ 請確保您的試算表已開啟「知道連結的人即可檢視」權限。\n\n"
-        "分頁必須包含：第一頁「學生名單」(需有座號,姓名,資優類別,英組,數組,自組)\n"
-        "第二頁「書局報價」(需有商品名稱,科目,分組代號,單價)")
+st.subheader("Step 1: 確認或輸入 Google 試算表網址")
+st.info("預設已載入校內公版範本。其他老師若有自行建立副本，請將新網址貼入下方替換即可。")
 
-sheet_url = st.text_input("請貼上試算表網址：", placeholder="https://docs.google.com/spreadsheets/d/...")
+# 這裡把您的專屬連結設為預設值
+default_url = "https://docs.google.com/spreadsheets/d/1tkVBUMguqPGZ8iq_3fv2UQu9N0d8tR6m/edit?usp=sharing&ouid=104861554103843677606&rtpof=true&sd=true"
+sheet_url = st.text_input("試算表網址：", value=default_url)
 
 st.subheader("Step 2: 產生列印檔")
 
@@ -188,7 +188,7 @@ if sheet_url:
     if xlsx_url:
         try:
             with st.spinner("正在連線至 Google Sheets 讀取資料..."):
-                # 直接讀取 XLSX 格式的兩個 Sheet
+                # 讀取 XLSX 格式的兩個 Sheet
                 df_students = pd.read_excel(xlsx_url, sheet_name=0).fillna("")
                 df_books = pd.read_excel(xlsx_url, sheet_name=1).fillna("")
             
