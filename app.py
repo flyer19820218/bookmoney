@@ -5,6 +5,7 @@ from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.worksheet.page import PageMargins
 import re
 import io
+import requests
 
 # ==========================================
 # 0. 網頁基本設定
@@ -12,19 +13,39 @@ import io
 st.set_page_config(page_title="全校通用購書單系統", layout="centered", page_icon="📚")
 
 st.title("📚 全校通用購書費通知單系統")
-st.markdown("確認下方 Google 試算表網址無誤後，系統將自動完成對帳、計算資優生差額，並排版成 2x2 的 A4 通知單！")
+st.markdown("自動比對名單、計算資優生差額，一鍵排版成 2x2 的 A4 裁切版通知單！")
 st.divider()
 
 # ==========================================
-# 1. 核心邏輯區
+# 1. 老師使用說明區 (新增)
+# ==========================================
+st.markdown("""
+### 📖 使用說明：
+1. **準備資料**：點擊開啟 [校內購書公版範本 (短網址：https://reurl.cc/K2LgNe)](https://reurl.cc/K2LgNe)，並將名單與書價填入。
+2. **開啟共用**：點擊您試算表右上角的「共用」，將權限設定為「**知道連結的人即可檢視**」。
+3. **貼上網址**：將您的試算表網址（長短網址皆可）貼到下方輸入框。
+4. **下載列印**：確認讀取成功後，點擊產生按鈕即可下載 Excel 列印檔！
+""")
+st.divider()
+
+# ==========================================
+# 2. 核心邏輯區
 # ==========================================
 def get_google_sheet_xlsx_url(url):
-    """將 Google Sheet 網址轉換為直接下載 XLSX 的連結，這樣才能一次讀取所有分頁"""
+    """將 Google Sheet 網址(含短網址)轉換為直接下載 XLSX 的連結"""
     try:
+        # 如果是短網址，先解析出真實的長網址
+        if "docs.google.com" not in url:
+            response = requests.head(url, allow_redirects=True)
+            url = response.url
+            
         pattern = r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)'
-        sheet_id = re.search(pattern, url).group(1)
-        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
-    except:
+        match = re.search(pattern, url)
+        if match:
+            sheet_id = match.group(1)
+            return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+        return None
+    except Exception as e:
         return None
 
 def should_buy_book(b_subj, b_code, s_gifted, s_eng, s_math, s_sci):
@@ -139,7 +160,6 @@ def generate_excel(df_students, df_books):
                 subtotal = sum([item['price'] for item in items])
             grand_total += subtotal
             
-            # 寫入分類、明細、小計
             c_cat = ws.cell(row=curr_row, column=start_col, value="社會三科" if cat == "社會" else cat)
             c_cat.font = f_bold ; c_cat.alignment = al_c ; c_cat.border = b_all
             
@@ -172,23 +192,19 @@ def generate_excel(df_students, df_books):
     return output.getvalue()
 
 # ==========================================
-# 2. 介面互動區
+# 3. 介面互動區
 # ==========================================
-st.subheader("Step 1: 確認或輸入 Google 試算表網址")
-st.info("預設已載入校內公版範本。其他老師若有自行建立副本，請將新網址貼入下方替換即可。")
+st.subheader("🛠️ 開始作業")
 
-# 這裡把您的專屬連結設為預設值
-default_url = "https://docs.google.com/spreadsheets/d/1tkVBUMguqPGZ8iq_3fv2UQu9N0d8tR6m/edit?usp=sharing&ouid=104861554103843677606&rtpof=true&sd=true"
-sheet_url = st.text_input("試算表網址：", value=default_url)
-
-st.subheader("Step 2: 產生列印檔")
+# 預設載入您的短網址
+default_url = "https://reurl.cc/K2LgNe"
+sheet_url = st.text_input("輸入您的試算表網址：", value=default_url)
 
 if sheet_url:
     xlsx_url = get_google_sheet_xlsx_url(sheet_url)
     if xlsx_url:
         try:
             with st.spinner("正在連線至 Google Sheets 讀取資料..."):
-                # 讀取 XLSX 格式的兩個 Sheet
                 df_students = pd.read_excel(xlsx_url, sheet_name=0).fillna("")
                 df_books = pd.read_excel(xlsx_url, sheet_name=1).fillna("")
             
@@ -209,4 +225,4 @@ if sheet_url:
         except Exception as e:
             st.error(f"❌ 讀取失敗！請確認網址是否正確，且權限已設為「知道連結的人即可檢視」。(錯誤細節: {e})")
     else:
-        st.warning("⚠️ 無法解析網址，請確認您貼上的是完整的 Google Sheets 網址。")
+        st.warning("⚠️ 無法解析網址，請確認您貼上的是正確的網址。")
