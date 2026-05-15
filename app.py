@@ -13,19 +13,39 @@ import requests
 st.set_page_config(page_title="全校通用購書單系統", layout="centered", page_icon="📚")
 
 st.title("📚 全校通用購書費通知單系統")
-st.markdown("自動比對名單、計算資優生差額，一鍵排版成 2x2 的 A4 裁切版通知單！")
+st.markdown("自動比對名單、計算資優生差額，一鍵排版成 **2x2 的 A4 裁切版通知單**！")
 st.divider()
 
 # ==========================================
-# 1. 老師使用說明區 (新增)
+# 1. 老師無腦使用說明區 (新增詳細版)
 # ==========================================
-st.markdown("""
-### 📖 使用說明：
-1. **準備資料**：點擊開啟 [校內購書公版範本 (短網址：https://reurl.cc/K2LgNe)](https://reurl.cc/K2LgNe)，並將名單與書價填入。
-2. **開啟共用**：點擊您試算表右上角的「共用」，將權限設定為「**知道連結的人即可檢視**」。
-3. **貼上網址**：將您的試算表網址（長短網址皆可）貼到下方輸入框。
-4. **下載列印**：確認讀取成功後，點擊產生按鈕即可下載 Excel 列印檔！
-""")
+st.header("💡 導師專屬「一鍵排版」全攻略")
+
+with st.expander("👉 第一步：領取並填寫您的專屬表格 (點我展開)", expanded=True):
+    st.markdown("""
+    1. 點擊進入 [校內購書公版範本 (短網址：https://reurl.cc/K2LgNe)](https://reurl.cc/K2LgNe)。
+    2. 進去後，點選左上角的 **「檔案」 > 「建立副本」**。（一定要建立副本才能編輯喔！）
+    3. **不知道怎麼打字？請 AI 幫忙！**
+       手邊只有「紙本估價單」或「分組名單」？直接拍照傳給 **Gemini 或 ChatGPT**，並對它說：
+       > *"這是我班上的購書估價單，請幫我整理成「商品名稱、科目、分組代號、單價」四個欄位的表格。"*
+       接著直接把 AI 做好的表格**複製貼上**到您的 Google 試算表即可！
+    """)
+
+with st.expander("👉 第二步：開啟「共用」權限 (這步沒做會失敗喔！)", expanded=True):
+    st.markdown("""
+    1. 點擊您 Google 試算表右上角大大的 **「共用」** 按鈕。
+    2. 在「一般存取權」下方，將「限制」改為 **「知道連結的人即可檢視」**。
+    3. 按下 **「複製連結」**。
+    """)
+
+with st.expander("👉 第三步：貼上網址，領取列印檔", expanded=True):
+    st.markdown("""
+    1. 將剛剛複製的網址，**貼到下方輸入框**。
+    2. 畫面顯示「讀取成功」後，按下 **「🚀 開始產生通知單」**。
+    3. 下載產出的 Excel 檔，直接按列印。印出來後十字切兩刀，剛好四張，直接發給家長！
+    """)
+
+st.info("⚠️ **資優生怎麼辦？** \n 在名單分頁的資優生欄位選「語資」或「數資」，系統會自動幫他扣掉不用買的講義費。一年級沒分組的話，分組代號通通填 `1` 就好！")
 st.divider()
 
 # ==========================================
@@ -34,7 +54,6 @@ st.divider()
 def get_google_sheet_xlsx_url(url):
     """將 Google Sheet 網址(含短網址)轉換為直接下載 XLSX 的連結"""
     try:
-        # 如果是短網址，先解析出真實的長網址
         if "docs.google.com" not in url:
             response = requests.head(url, allow_redirects=True)
             url = response.url
@@ -73,18 +92,15 @@ def generate_excel(df_students, df_books):
     ws = wb.active
     ws.title = "購書通知單(4張一頁)"
 
-    # 版面與邊界設定
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
     ws.page_margins = PageMargins(left=0.3, right=0.3, top=0.5, bottom=0.5)
 
-    # 欄寬設定
     ws.column_dimensions['A'].width = 8   ; ws.column_dimensions['B'].width = 38
     ws.column_dimensions['C'].width = 7   ; ws.column_dimensions['D'].width = 2
     ws.column_dimensions['E'].width = 8   ; ws.column_dimensions['F'].width = 38
     ws.column_dimensions['G'].width = 7
 
-    # 字體與樣式設定
     f_title = Font(name="微軟正黑體", size=13, bold=True)
     f_info = Font(name="微軟正黑體", size=12, bold=True)
     f_norm = Font(name="微軟正黑體", size=9)
@@ -108,7 +124,6 @@ def generate_excel(df_students, df_books):
         math = row.get("數組", "1")
         sci = row.get("自組", "1")
 
-        # 整理該學生的書單
         student_books = {"國": [], "英": [], "數": [], "自": [], "社會": [], "其他": []}
         for _, book in df_books.iterrows():
             b_name = book.get("商品名稱", "")
@@ -116,7 +131,6 @@ def generate_excel(df_students, df_books):
             b_code = book.get("分組代號", "1")
             b_price = book.get("單價", 0)
             
-            # 將社會科系歸類到社會，以便顯示
             if b_subj in ["歷", "地", "公", "社會三科"]: b_subj = "社會"
             
             if should_buy_book(b_subj, b_code, gifted, eng, math, sci):
@@ -125,13 +139,11 @@ def generate_excel(df_students, df_books):
                 else:
                     student_books["其他"].append({"name": b_name, "price": b_price})
 
-        # 計算 Excel 寫入位置
         page = i // 4
         pos = i % 4
         start_row = page * (RECEIPT_ROWS * 2 + 2) + (0 if pos < 2 else RECEIPT_ROWS + 1) + 1
         start_col = 1 if pos % 2 == 0 else 5
         
-        # 標題與基本資料
         ws.merge_cells(start_row=start_row, start_column=start_col, end_row=start_row, end_column=start_col+2)
         c1 = ws.cell(row=start_row, column=start_col, value="學期購書費通知單")
         c1.font = f_title ; c1.alignment = al_c
@@ -140,13 +152,11 @@ def generate_excel(df_students, df_books):
         c2 = ws.cell(row=start_row+1, column=start_col, value=f"座號：{seat}      姓名：{name}")
         c2.font = f_info ; c2.alignment = Alignment(horizontal="left", vertical="center")
         
-        # 表頭
         headers = ["科目", "購買明細", "小計"]
         for col_offset, text in enumerate(headers):
             cell = ws.cell(row=start_row+2, column=start_col+col_offset, value=text)
             cell.font = f_bold ; cell.alignment = al_c ; cell.border = b_all
 
-        # 內容寫入
         cat_order = ["國", "英", "數", "自", "社會", "其他"]
         curr_row = start_row + 3
         grand_total = 0
@@ -172,7 +182,6 @@ def generate_excel(df_students, df_books):
             ws.row_dimensions[curr_row].height = 28
             curr_row += 1
             
-        # 總計行
         ws.merge_cells(start_row=curr_row, start_column=start_col, end_row=curr_row, end_column=start_col+1)
         c_tot_l = ws.cell(row=curr_row, column=start_col, value="應收總計：")
         c_tot_l.font = f_tot ; c_tot_l.alignment = al_r ; c_tot_l.border = b_all
@@ -182,7 +191,6 @@ def generate_excel(df_students, df_books):
         c_tot_v.font = f_tot ; c_tot_v.alignment = al_c ; c_tot_v.border = b_all
         ws.row_dimensions[curr_row].height = 25
         
-        # 繪製最外圍大框線 (方便裁切)
         for r in range(start_row, curr_row + 1):
             for c in range(start_col, start_col + 3):
                 ws.cell(row=r, column=c).border = b_all
@@ -192,13 +200,12 @@ def generate_excel(df_students, df_books):
     return output.getvalue()
 
 # ==========================================
-# 3. 介面互動區
+# 3. 介面操作區
 # ==========================================
 st.subheader("🛠️ 開始作業")
 
-# 預設載入您的短網址
 default_url = "https://reurl.cc/K2LgNe"
-sheet_url = st.text_input("輸入您的試算表網址：", value=default_url)
+sheet_url = st.text_input("👇 請在下方輸入您的試算表網址：", value=default_url)
 
 if sheet_url:
     xlsx_url = get_google_sheet_xlsx_url(sheet_url)
@@ -218,11 +225,12 @@ if sheet_url:
                 st.download_button(
                     label="📥 點此下載 Excel 通知單列印檔",
                     data=excel_data,
-                    file_name="全校購書通知單_列印排版.xlsx",
+                    file_name="班級購書通知單_排版完成.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
                 
         except Exception as e:
-            st.error(f"❌ 讀取失敗！請確認網址是否正確，且權限已設為「知道連結的人即可檢視」。(錯誤細節: {e})")
+            st.error("❌ 讀取失敗！請確認網址是否正確，且【共用】權限已設為「知道連結的人即可檢視」。")
+            st.warning(f"系統錯誤代碼：{e}")
     else:
         st.warning("⚠️ 無法解析網址，請確認您貼上的是正確的網址。")
