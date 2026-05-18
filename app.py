@@ -13,7 +13,7 @@ import requests
 st.set_page_config(page_title="全校通用購書單系統", layout="centered", page_icon="📚")
 
 st.title("📚 全校通用購書費通知單系統")
-st.markdown("自動比對名單、計算資優生差額，一鍵產出 **2x2 的 A4 裁切版通知單**！")
+st.markdown("自動比對名單、計算資優生差額，一鍵產出 **家長通知單** 與 **導師收費總表**！")
 st.divider()
 
 # ==========================================
@@ -41,21 +41,18 @@ with st.expander("👉 第二步：開啟「共用」權限 (這步沒做會失�
 with st.expander("👉 第三步：貼上網址，領取列印檔", expanded=True):
     st.markdown("""
     1. 將剛剛複製的網址，**貼到下方輸入框**。
-    2. 畫面顯示「讀取成功」後，按下 **「🚀 開始產生通知單」**。
-    3. 下載產出的 Excel 檔準備列印。
+    2. 畫面顯示「讀取成功」後，按下 **「🚀 開始產生檔案」**。
+    3. 您可以分別下載「給家長的 4格通知單」以及「給導師的 對帳收費總表」。
     """)
 
-# 新增的 99 分真實宣告
-st.warning("⚠️ **列印小叮嚀：** 系統排版能做到 99 分，但因為 **Mac 和 PC 的 Excel 預設邊界不一樣**，下載後可能不會「剛好」完美塞滿一張 A4。**請列印時自行點選「預覽列印」，並微調縮放比例或邊界喔！**")
-
-st.info("💡 **資優生怎麼辦？** \n 在名單分頁的資優生欄位選「語資」或「數資」，系統會自動幫他扣掉不用買的講義費。一年級沒分組的話，分組代號通通填 `1` 就好！")
+st.warning("⚠️ **列印小叮嚀：** 下載家長通知單後，因各電腦 Excel 預設邊界不同，請在列印時自行點選「預覽列印」微調縮放比例！")
+st.info("💡 **資優生怎麼辦？** 在名單分頁的資優生欄位選「語資」或「數資」，系統會自動扣除。一年級沒分組，代號全填 `1` 就好！")
 st.divider()
 
 # ==========================================
 # 2. 核心邏輯區
 # ==========================================
 def get_google_sheet_xlsx_url(url):
-    """將 Google Sheet 網址(含短網址)轉換為直接下載 XLSX 的連結"""
     try:
         if "docs.google.com" not in url:
             response = requests.head(url, allow_redirects=True)
@@ -71,30 +68,23 @@ def get_google_sheet_xlsx_url(url):
         return None
 
 def should_buy_book(b_subj, b_code, s_gifted, s_eng, s_math, s_sci):
-    """判斷該名學生是否需要購買該本書籍的通用邏輯"""
     s_gifted = str(s_gifted).strip()
     b_code = str(b_code).strip()
     
-    # 規則 A：資優生免買邏輯
     if s_gifted == "語資" and b_subj in ["國", "英"]: return False
     if s_gifted == "數資" and b_subj in ["數", "自"]: return False
-        
-    # 規則 B：全班共同書目 (代號為 1 或 全)
     if b_code in ["1", "全"]: return True
         
-    # 規則 C：分組書目比對
     if b_subj == "英" and b_code == str(s_eng).strip(): return True
     if b_subj == "數" and b_code == str(s_math).strip(): return True
     if b_subj == "自" and b_code == str(s_sci).strip(): return True
-    
     return False
 
-def generate_excel(df_students, df_books):
-    """排版並生成 2x2 格式的 Excel 檔案"""
+def generate_receipts_excel(df_students, df_books):
+    """產生 2x2 格式的家長通知單"""
     wb = Workbook()
     ws = wb.active
     ws.title = "購書通知單(4張一頁)"
-
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
     ws.page_margins = PageMargins(left=0.3, right=0.3, top=0.5, bottom=0.5)
@@ -109,38 +99,26 @@ def generate_excel(df_students, df_books):
     f_norm = Font(name="微軟正黑體", size=9)
     f_bold = Font(name="微軟正黑體", size=10, bold=True)
     f_tot = Font(name="微軟正黑體", size=12, bold=True, color="FF0000")
-    
     al_c = Alignment(horizontal="center", vertical="center")
     al_l = Alignment(horizontal="left", vertical="center", wrap_text=True)
     al_r = Alignment(horizontal="right", vertical="center")
-    
     thin = Side(style='thin', color='000000')
     b_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     RECEIPT_ROWS = 12
 
     for i, row in df_students.iterrows():
-        seat = row.get("座號", "")
-        name = row.get("姓名", "")
+        seat, name = row.get("座號", ""), row.get("姓名", "")
         gifted = row.get("資優類別", "")
-        eng = row.get("英組", "1")
-        math = row.get("數組", "1")
-        sci = row.get("自組", "1")
+        eng, math, sci = row.get("英組", "1"), row.get("數組", "1"), row.get("自組", "1")
 
         student_books = {"國": [], "英": [], "數": [], "自": [], "社會": [], "其他": []}
         for _, book in df_books.iterrows():
-            b_name = book.get("商品名稱", "")
-            b_subj = book.get("科目", "")
-            b_code = book.get("分組代號", "1")
-            b_price = book.get("單價", 0)
-            
+            b_name, b_subj, b_code, b_price = book.get("商品名稱", ""), book.get("科目", ""), book.get("分組代號", "1"), book.get("單價", 0)
             if b_subj in ["歷", "地", "公", "社會三科"]: b_subj = "社會"
-            
             if should_buy_book(b_subj, b_code, gifted, eng, math, sci):
-                if b_subj in student_books:
-                    student_books[b_subj].append({"name": b_name, "price": b_price})
-                else:
-                    student_books["其他"].append({"name": b_name, "price": b_price})
+                if b_subj in student_books: student_books[b_subj].append({"name": b_name, "price": b_price})
+                else: student_books["其他"].append({"name": b_name, "price": b_price})
 
         page = i // 4
         pos = i % 4
@@ -155,15 +133,13 @@ def generate_excel(df_students, df_books):
         c2 = ws.cell(row=start_row+1, column=start_col, value=f"座號：{seat}      姓名：{name}")
         c2.font = f_info ; c2.alignment = Alignment(horizontal="left", vertical="center")
         
-        headers = ["科目", "購買明細", "小計"]
-        for col_offset, text in enumerate(headers):
+        for col_offset, text in enumerate(["科目", "購買明細", "小計"]):
             cell = ws.cell(row=start_row+2, column=start_col+col_offset, value=text)
             cell.font = f_bold ; cell.alignment = al_c ; cell.border = b_all
 
         cat_order = ["國", "英", "數", "自", "社會", "其他"]
         curr_row = start_row + 3
         grand_total = 0
-        
         for cat in cat_order:
             items = student_books[cat]
             if not items:
@@ -175,13 +151,10 @@ def generate_excel(df_students, df_books):
             
             c_cat = ws.cell(row=curr_row, column=start_col, value="社會三科" if cat == "社會" else cat)
             c_cat.font = f_bold ; c_cat.alignment = al_c ; c_cat.border = b_all
-            
             c_det = ws.cell(row=curr_row, column=start_col+1, value=det_str)
             c_det.font = f_norm ; c_det.alignment = al_l ; c_det.border = b_all
-            
             c_sub = ws.cell(row=curr_row, column=start_col+2, value=subtotal)
             c_sub.font = f_bold ; c_sub.alignment = al_c ; c_sub.border = b_all
-            
             ws.row_dimensions[curr_row].height = 28
             curr_row += 1
             
@@ -189,18 +162,99 @@ def generate_excel(df_students, df_books):
         c_tot_l = ws.cell(row=curr_row, column=start_col, value="應收總計：")
         c_tot_l.font = f_tot ; c_tot_l.alignment = al_r ; c_tot_l.border = b_all
         ws.cell(row=curr_row, column=start_col+1).border = b_all
-        
         c_tot_v = ws.cell(row=curr_row, column=start_col+2, value=f"{int(grand_total)}")
         c_tot_v.font = f_tot ; c_tot_v.alignment = al_c ; c_tot_v.border = b_all
         ws.row_dimensions[curr_row].height = 25
         
         for r in range(start_row, curr_row + 1):
-            for c in range(start_col, start_col + 3):
-                ws.cell(row=r, column=c).border = b_all
+            for c in range(start_col, start_col + 3): ws.cell(row=r, column=c).border = b_all
 
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue()
+
+def generate_master_excel(df_students, df_books):
+    """產生導師專用的收費對帳總表"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "班級收費總表"
+    
+    # 準備書目資料與計算全班購買數量
+    book_rows = []
+    for _, book in df_books.iterrows():
+        b_name, b_subj, b_code, b_price = book.get("商品名稱", ""), book.get("科目", ""), book.get("分組代號", "1"), book.get("單價", 0)
+        b_subj_check = "社會" if b_subj in ["歷", "地", "公", "社會三科"] else b_subj
+        
+        qty = 0
+        for _, s in df_students.iterrows():
+            if should_buy_book(b_subj_check, b_code, s.get("資優類別", ""), s.get("英組", "1"), s.get("數組", "1"), s.get("自組", "1")):
+                qty += 1
+        book_rows.append([b_name, b_subj, b_code, qty, b_price])
+
+    # 準備學生資料與計算總金額
+    student_rows = []
+    for _, s in df_students.iterrows():
+        seat, name = s.get("座號", ""), s.get("姓名", "")
+        gifted = s.get("資優類別", "")
+        eng, math, sci = s.get("英組", "1"), s.get("數組", "1"), s.get("自組", "1")
+        
+        subtotal = 0
+        for _, book in df_books.iterrows():
+            b_subj, b_code, b_price = book.get("科目", ""), book.get("分組代號", "1"), book.get("單價", 0)
+            b_subj_check = "社會" if b_subj in ["歷", "地", "公", "社會三科"] else b_subj
+            if should_buy_book(b_subj_check, b_code, gifted, eng, math, sci):
+                subtotal += b_price
+        student_rows.append([seat, name, gifted, eng, math, sci, subtotal])
+
+    # 寫入 Excel (左邊書單，右邊學生)
+    headers_left = ["商品名稱", "科目", "分組代號", "購買數量", "單價"]
+    for col_idx, h in enumerate(headers_left, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = Font(bold=True); cell.alignment = Alignment(horizontal="center")
+
+    headers_right = ["座號", "姓名", "資優", "英組", "數組", "自組", "應收總額"]
+    for col_idx, h in enumerate(headers_right, 7):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = Font(bold=True); cell.alignment = Alignment(horizontal="center")
+
+    thin_border = Border(left=Side(style='thin', color='BFBFBF'), right=Side(style='thin', color='BFBFBF'),
+                         top=Side(style='thin', color='BFBFBF'), bottom=Side(style='thin', color='BFBFBF'))
+
+    # 填寫左邊書目
+    for r_idx, b_row in enumerate(book_rows, 2):
+        for c_idx, val in enumerate(b_row, 1):
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = thin_border
+            if c_idx > 1: cell.alignment = Alignment(horizontal="center")
+
+    # 填寫右邊學生
+    for r_idx, s_row in enumerate(student_rows, 2):
+        for c_idx, val in enumerate(s_row, 7):
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = thin_border
+            if c_idx != 8: cell.alignment = Alignment(horizontal="center")
+            if c_idx == 13: cell.font = Font(bold=True)
+
+    # 全班總計
+    last_row = max(len(book_rows), len(student_rows)) + 2
+    ws.cell(row=last_row, column=12, value="班級總計").font = Font(bold=True)
+    total_sum = sum([s[-1] for s in student_rows])
+    tot_cell = ws.cell(row=last_row, column=13, value=total_sum)
+    tot_cell.font = Font(bold=True, color="FF0000"); tot_cell.border = thin_border
+
+    # 設定欄寬
+    ws.column_dimensions['A'].width = 35; ws.column_dimensions['B'].width = 8
+    ws.column_dimensions['C'].width = 10; ws.column_dimensions['D'].width = 10; ws.column_dimensions['E'].width = 8
+    ws.column_dimensions['F'].width = 3  # 空白分隔欄
+    ws.column_dimensions['G'].width = 6 ; ws.column_dimensions['H'].width = 12
+    ws.column_dimensions['I'].width = 8 ; ws.column_dimensions['J'].width = 8
+    ws.column_dimensions['K'].width = 8 ; ws.column_dimensions['L'].width = 8
+    ws.column_dimensions['M'].width = 12
+
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
 
 # ==========================================
 # 3. 介面操作區
@@ -220,19 +274,29 @@ if sheet_url:
             
             st.success(f"✅ 讀取成功！共載入 {len(df_students)} 位學生、{len(df_books)} 筆書目報價。")
             
-            if st.button("🚀 開始產生通知單 (A4 2x2排版)", type="primary"):
-                with st.spinner("系統正在排版中..."):
-                    excel_data = generate_excel(df_students, df_books)
+            if st.button("🚀 開始產生檔案", type="primary"):
+                with st.spinner("系統正在計算與排版中..."):
+                    receipts_data = generate_receipts_excel(df_students, df_books)
+                    master_data = generate_master_excel(df_students, df_books)
                     
                 st.balloons()
-                st.download_button(
-                    label="📥 點此下載 Excel 通知單列印檔",
-                    data=excel_data,
-                    file_name="班級購書通知單_排版完成.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-                # 下載按鈕下方再提醒一次
-                st.caption("☝️ 下載後請記得先「預覽列印」調整邊界與縮放比例喔！")
+                
+                # 建立左右兩個按鈕
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="📥 下載【家長通知單】(A4列印版)",
+                        data=receipts_data,
+                        file_name="家長購書通知單.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                with col2:
+                    st.download_button(
+                        label="📥 下載【導師對帳總表】(收費明細)",
+                        data=master_data,
+                        file_name="導師收費對帳總表.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
                 
         except Exception as e:
             st.error("❌ 讀取失敗！請確認網址是否正確，且【共用】權限已設為「知道連結的人即可檢視」。")
