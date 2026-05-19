@@ -22,7 +22,6 @@ matplotlib.use('Agg')
 # ==========================================
 st.set_page_config(page_title="AI 成績單產生器", layout="centered", page_icon="📈")
 
-# 因為你已經把檔案放進資料夾了，程式會自動偵測並直接讀取它！
 FONT_NAME = "NotoSansTC-Regular.ttf"
 FONT_URL = "https://cdn.jsdelivr.net/gh/themoeway/noto-sans-tc-ttf@master/ttf/NotoSansTC-Regular.ttf"
 
@@ -42,34 +41,23 @@ def init_fonts():
             return False
     
     try:
-        # 1. 強制註冊字體到 Matplotlib (解決雷達圖中文變方塊的問題)
         font_manager.fontManager.addfont(FONT_NAME)
         dynamic_font_name = font_manager.FontProperties(fname=FONT_NAME).get_name()
         plt.rcParams['font.sans-serif'] = [dynamic_font_name, 'Microsoft JhengHei', 'Arial']
         plt.rcParams['axes.unicode_minus'] = False
-        
-        # 2. 註冊字體到 ReportLab (解決 PDF 中文變成空白的問題)
         pdfmetrics.registerFont(TTFont('CustomFont', FONT_NAME))
         return True
     except Exception as e:
         st.error(f"字體註冊失敗: {e}")
         return False
 
-# 執行字體初始化
 HAS_FONT = init_fonts()
 
 # ==========================================
 # 1. 說明區
 # ==========================================
-st.title("📈 全校通用 AI 成績單產生器")
-st.markdown("貼上成績連結，系統會**自動偵測班級人數**並排除底部的平均值與圖表，精準產出 **PDF 雷達圖成績單**！")
-
-with st.expander("👉 點我查看【試算表標準格式】說明", expanded=True):
-    st.info("""
-    **請確保您的試算表第一列有以下欄位名稱 (順序不拘)：**
-    * **一年級版 (5科)**：`座號`、`姓名`、`國文`、`英文`、`數學`、`自然`、`社會`
-    * **二三年級版 (7科)**：`座號`、`姓名`、`國文`、`英文`、`數學`、`自然`、`歷史`、`地理`、`公民`
-    """)
+st.title("📈 全校通用 AI 成績單產生器 (PR版)")
+st.markdown("自動偵測人數、排除雜訊，產出包含 **各科平均、班級名次、PR值雷達圖** 的專業成績單！")
 
 # ==========================================
 # 2. 核心邏輯區
@@ -90,25 +78,35 @@ def get_google_sheet_csv_url(url):
     except:
         return None
 
-def create_radar_chart(labels, scores):
+def create_pr_radar_chart(labels, pr_scores):
+    """使用 PR 值繪製雷達圖 (滿分為 PR 99)"""
     num_vars = len(labels)
     angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
     
-    # 【修正防呆】使用 list() 複製新列表，防止 Streamlit 重新整理時陣列無限拉長噴錯
-    plot_scores = list(scores) + [scores[0]]
+    plot_scores = list(pr_scores) + [pr_scores[0]]
     angles = angles + [angles[0]]
     
     fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     
-    ax.set_thetagrids(np.degrees(angles[:-1]), labels, fontsize=12)
-    ax.set_ylim(0, 100)
-    ax.set_yticks([20, 40, 60, 80, 100])
-    ax.set_yticklabels(["20", "40", "60", "80", "100"], color="grey", size=8)
+    # 標籤加上 "PR" 字樣提示學生
+    display_labels = [f"{label} (PR)" for label in labels]
+    ax.set_thetagrids(np.degrees(angles[:-1]), display_labels, fontsize=11)
     
-    ax.plot(angles, plot_scores, color='#4F81BD', linewidth=2, linestyle='solid')
+    # PR 值最高到 99 (我們設定軸的最大值為 100)
+    ax.set_ylim(0, 100)
+    ax.set_yticks([25, 50, 75, 100])
+    ax.set_yticklabels(["PR25", "PR50", "PR75", "PR99"], color="grey", size=8)
+    
+    # 畫 PR 50 (班級中位數) 的虛線參考基準
+    ax.plot(angles, [50]*len(angles), color='#C0504D', linewidth=1.5, linestyle='--', label='PR 50 (中位數)')
+    
+    # 畫學生的 PR 分佈
+    ax.plot(angles, plot_scores, color='#4F81BD', linewidth=2, linestyle='solid', label='個人優勢 (PR)')
     ax.fill(angles, plot_scores, color='#4F81BD', alpha=0.4)
+    
+    plt.legend(loc='upper right', bbox_to_anchor=(1.35, 1.15), fontsize=9)
     
     img_io = io.BytesIO()
     plt.savefig(img_io, format='png', bbox_inches='tight', transparent=True)
@@ -120,68 +118,65 @@ def generate_pdf_report(df):
     pdf_io = io.BytesIO()
     c = canvas.Canvas(pdf_io, pagesize=A4)
     width, height = A4
-    
-    # 根據字體註冊結果決定 PDF 字體，確保中文能正常顯示
     current_font = 'CustomFont' if HAS_FONT else 'Helvetica'
     
+    # 決定是 5 科還是 7 科，並統一歸納成 5 大科供繪圖用
     has_7_subjects = all(col in df.columns for col in ['歷史', '地理', '公民'])
+    core_subjects = ['國文', '英文', '數學', '自然', '社會']
     
+    # 計算各科班級平均 (用於文字顯示)
+    avg_dict = {}
+    if has_7_subjects:
+        for sub in ['國文', '英文', '數學', '自然', '歷史', '地理', '公民']:
+            avg_dict[sub] = df[sub].mean()
+        avg_dict['社會'] = (avg_dict['歷史'] + avg_dict['地理'] + avg_dict['公民']) / 3
+    else:
+        for sub in core_subjects:
+            avg_dict[sub] = df[sub].mean()
+
     for _, row in df.iterrows():
-        seat, name = row.get('座號', ''), row.get('姓名', '')
-        name = str(name)
+        seat, name = row.get('座號', ''), str(row.get('姓名', ''))
         
-        scores_dict = {}
+        # 準備 PDF 文字內容
         if has_7_subjects:
-            subjects = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民']
-            radar_labels = subjects
-            for sub in subjects:
-                scores_dict[sub] = pd.to_numeric(row.get(sub, 0), errors='coerce')
-                if pd.isna(scores_dict[sub]): scores_dict[sub] = 0
-            
-            radar_scores = [scores_dict[s] for s in subjects]
-            soc_avg = (scores_dict['歷史'] + scores_dict['地理'] + scores_dict['公民']) / 3
-            total = scores_dict['國文'] + scores_dict['英文'] + scores_dict['數學'] + scores_dict['自然'] + soc_avg
-            avg = total / 5
-            
             print_text = [
-                f"國文: {scores_dict['國文']}", f"英文: {scores_dict['英文']}", 
-                f"數學: {scores_dict['數學']}", f"自然: {scores_dict['自然']}",
-                f"歷史: {scores_dict['歷史']}  地理: {scores_dict['地理']}  公民: {scores_dict['公民']}"
+                f"國文: {row['國文']:.1f}  (班均: {avg_dict['國文']:.1f})", 
+                f"英文: {row['英文']:.1f}  (班均: {avg_dict['英文']:.1f})", 
+                f"數學: {row['數學']:.1f}  (班均: {avg_dict['數學']:.1f})", 
+                f"自然: {row['自然']:.1f}  (班均: {avg_dict['自然']:.1f})",
+                f"社會: {row['社會']:.1f}  (班均: {avg_dict['社會']:.1f})",
+                f"  └ 歷:{row['歷史']:.1f} / 地:{row['地理']:.1f} / 公:{row['公民']:.1f}"
             ]
         else:
-            subjects = ['國文', '英文', '數學', '自然', '社會']
-            radar_labels = subjects
-            for sub in subjects:
-                scores_dict[sub] = pd.to_numeric(row.get(sub, 0), errors='coerce')
-                if pd.isna(scores_dict[sub]): scores_dict[sub] = 0
-                
-            radar_scores = [scores_dict[s] for s in subjects]
-            total = sum(radar_scores)
-            avg = total / 5
-            print_text = [f"{s}: {scores_dict[s]}" for s in subjects]
+            print_text = [f"{s}: {row[s]:.1f}  (班均: {avg_dict[s]:.1f})" for s in core_subjects]
+
+        # 取得該學生的各科 PR 值供雷達圖繪製
+        pr_scores = [row[f'{s}_PR'] for s in core_subjects]
 
         # --- PDF 版面設計 ---
-        c.setFont(current_font, 22)
+        c.setFont(current_font, 24)
         c.drawCentredString(width/2, height - 70, "學 生 個 人 成 績 單")
         
         c.setFont(current_font, 14)
         c.drawString(60, height - 120, f"座號: {int(seat)}      姓名: {name}")
         c.line(60, height - 130, width - 60, height - 130)
         
+        # 列印各科與平均
         y_pos = height - 170
         c.setFont(current_font, 12)
         for text in print_text:
             c.drawString(70, y_pos, text)
             y_pos -= 25
             
-        y_pos -= 15
+        y_pos -= 10
         c.setFont(current_font, 14)
-        c.drawString(70, y_pos, f"⭐ 五科總分: {total:.1f}")
-        c.drawString(70, y_pos - 30, f"⭐ 五科平均: {avg:.2f}")
+        c.drawString(70, y_pos, f"⭐ 五科總分: {row['總分']:.1f}")
+        c.drawString(70, y_pos - 30, f"⭐ 班級名次: 第 {int(row['名次'])} 名")
+        c.drawString(70, y_pos - 60, f"⭐ 總分 PR 值: {row['總PR']:.1f}")
 
-        # 右側雷達圖
-        chart_img = create_radar_chart(radar_labels, radar_scores)
-        c.drawImage(ImageReader(chart_img), width - 320, height - 420, width=280, height=280, mask='auto')
+        # 右側 PR 雷達圖
+        chart_img = create_pr_radar_chart(core_subjects, pr_scores)
+        c.drawImage(ImageReader(chart_img), width - 330, height - 440, width=300, height=300, mask='auto')
         
         c.showPage()
         
@@ -199,36 +194,59 @@ if sheet_url:
     csv_url = get_google_sheet_csv_url(sheet_url)
     if csv_url:
         try:
-            with st.spinner("正在連線過濾資料..."):
-                df_scores = pd.read_csv(csv_url)
+            with st.spinner("正在連線讀取並計算 PR 值與名次..."):
+                df = pd.read_csv(csv_url)
                 
-                df_scores['座號'] = pd.to_numeric(df_scores['座號'], errors='coerce')
-                df_scores = df_scores.dropna(subset=['座號'])
-                df_scores = df_scores[df_scores['座號'] > 0]
-                df_scores = df_scores.sort_values(by='座號').reset_index(drop=True)
-                student_count = len(df_scores)
+                # 過濾資料
+                df['座號'] = pd.to_numeric(df['座號'], errors='coerce')
+                df = df.dropna(subset=['座號'])
+                df = df[df['座號'] > 0]
                 
-            st.success(f"✅ 成功鎖定！系統自動偵測到本班共 **{student_count}** 位學生，並已完美過濾下方圖表雜訊。")
+                # 分數轉數字，填補 NaN 為 0
+                cols_to_convert = ['國文', '英文', '數學', '自然', '社會', '歷史', '地理', '公民']
+                for col in cols_to_convert:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                
+                # 計算社會科總結 (如果是 7 科)
+                if all(c in df.columns for c in ['歷史', '地理', '公民']):
+                    df['社會'] = (df['歷史'] + df['地理'] + df['公民']) / 3
+                elif '社會' not in df.columns:
+                    df['社會'] = 0 # 防呆
+
+                # 核心大變動：計算各科 PR 值！
+                core_subjects = ['國文', '英文', '數學', '自然', '社會']
+                for sub in core_subjects:
+                    df[f'{sub}_PR'] = df[sub].rank(pct=True) * 100
+                
+                # 計算總分、總PR與名次
+                df['總分'] = df[core_subjects].sum(axis=1)
+                df['總PR'] = df['總分'].rank(pct=True) * 100
+                df['名次'] = df['總分'].rank(ascending=False, method='min') # 同分則同名次
+                
+                df = df.sort_values(by='座號').reset_index(drop=True)
+                student_count = len(df)
+                
+            st.success(f"✅ 成功鎖定！系統自動偵測到本班共 **{student_count}** 位學生，各科 PR 與名次計算完成。")
             
-            # 動態調整預覽欄位避免噴錯
-            preview_cols = [c for c in ['座號', '姓名', '國文', '英文', '數學', '自然'] if c in df_scores.columns]
-            st.dataframe(df_scores[preview_cols].head(5))
+            # 預覽包含名次與 PR 的資料
+            preview_cols = ['座號', '姓名', '總分', '名次', '總PR']
+            st.dataframe(df[preview_cols].head(5))
             
-            # 檢查字體載入狀態（雙重防呆）
             if not HAS_FONT:
                 st.error("⚠️ 系統未能成功載入中文字體，產出的 PDF 將無法正常顯示中文。")
             else:
-                if st.button(f"🚀 一鍵產生 {student_count} 人 PDF 成績單", type="primary"):
-                    with st.spinner("AI 正在繪製成績地圖與排版 PDF，這會花幾秒鐘的時間..."):
-                        pdf_data = generate_pdf_report(df_scores)
+                if st.button(f"🚀 一鍵產生 {student_count} 人 PDF 成績單 (PR版)", type="primary"):
+                    with st.spinner("AI 正在繪製 PR 雷達地圖與排版 PDF，這會花幾秒鐘的時間..."):
+                        pdf_data = generate_pdf_report(df)
                         
                     st.balloons()
                     st.download_button(
                         label=f"📥 下載全班 ({student_count}人) PDF 成績單",
                         data=pdf_data,
-                        file_name="全班個人成績單_雷達圖版.pdf",
+                        file_name="全班個人成績單_PR雷達版.pdf",
                         mime="application/pdf"
                     )
         except Exception as e:
-            st.error("❌ 讀取失敗！請確認試算表欄位名稱是否包含：座號、姓名、國文、英文...")
+            st.error("❌ 讀取失敗！請確認試算表格式或欄位名稱。")
             st.warning(f"錯誤細節：{e}")
