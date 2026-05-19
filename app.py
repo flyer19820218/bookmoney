@@ -25,10 +25,20 @@ with st.expander("👉 第一步：領取並填寫您的專屬表格 (點我展�
     st.markdown("""
     1. 點擊進入 [校內購書公版範本 (短網址：https://reurl.cc/K2LgNe)](https://reurl.cc/K2LgNe)。
     2. 進去後，點選左上角的 **「檔案」 > 「建立副本」**。（一定要建立副本才能編輯喔！）
-    3. **不知道怎麼打字？請 AI 幫忙！**
-       手邊只有「紙本估價單」或「分組名單」？直接拍照傳給 **Gemini 或 ChatGPT**，並對它說：
-       > *"這是我班上的購書估價單，請幫我整理成「商品名稱、科目、分組代號、單價」四個欄位的表格。"*
-       接著直接把 AI 做好的表格**複製貼上**到您的 Google 試算表即可！
+    3. **不想自己打字？讓 AI 幫你精準整理！**
+       手邊只有「紙本估價單」？直接拍照傳給 **Gemini 或 ChatGPT**，並**完整複製貼上以下這段指令給 AI**：
+       
+       > 你現在是一位專業、細心的「學校資料輸入員」。請將我上傳的書商估價單照片，精準地轉換成表格。
+       > 
+       > **【表格必須嚴格包含這 4 個欄位】：**
+       > 1. **商品名稱**：完整保留書名或材料費名稱。
+       > 2. **科目**：請根據書名自動分類為「國、英、數、自、社會、其他」這六類。（注意：歷史、地理、公民請一律歸類為「社會」；聯絡簿、桌墊、材料費請歸類為「其他」）。
+       > 3. **分組代號**：若圖片中無特別標示分組，請一律填入數字「1」。如果有分組，請直接填寫代號（如 5A、6B）。
+       > 4. **單價**：只填寫純數字，不要加上 $ 或 元。
+       > 
+       > **【嚴格限制】：** 請勿遺漏項目，不要加入任何問候語或廢話，你的回覆只能有「一個表格」。
+       
+       接著直接把 AI 做好的表格**全選複製、貼上**到您的 Google 試算表即可！
     """)
 
 with st.expander("👉 第二步：開啟「共用」權限 (這步沒做會失敗喔！)", expanded=True):
@@ -179,7 +189,6 @@ def generate_master_excel(df_students, df_books):
     ws = wb.active
     ws.title = "班級收費總表"
     
-    # 準備書目資料與計算全班購買數量
     book_rows = []
     for _, book in df_books.iterrows():
         b_name, b_subj, b_code, b_price = book.get("商品名稱", ""), book.get("科目", ""), book.get("分組代號", "1"), book.get("單價", 0)
@@ -191,7 +200,6 @@ def generate_master_excel(df_students, df_books):
                 qty += 1
         book_rows.append([b_name, b_subj, b_code, qty, b_price])
 
-    # 準備學生資料與計算總金額
     student_rows = []
     for _, s in df_students.iterrows():
         seat, name = s.get("座號", ""), s.get("姓名", "")
@@ -206,7 +214,6 @@ def generate_master_excel(df_students, df_books):
                 subtotal += b_price
         student_rows.append([seat, name, gifted, eng, math, sci, subtotal])
 
-    # 寫入 Excel (左邊書單，右邊學生)
     headers_left = ["商品名稱", "科目", "分組代號", "購買數量", "單價"]
     for col_idx, h in enumerate(headers_left, 1):
         cell = ws.cell(row=1, column=col_idx, value=h)
@@ -220,14 +227,12 @@ def generate_master_excel(df_students, df_books):
     thin_border = Border(left=Side(style='thin', color='BFBFBF'), right=Side(style='thin', color='BFBFBF'),
                          top=Side(style='thin', color='BFBFBF'), bottom=Side(style='thin', color='BFBFBF'))
 
-    # 填寫左邊書目
     for r_idx, b_row in enumerate(book_rows, 2):
         for c_idx, val in enumerate(b_row, 1):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.border = thin_border
             if c_idx > 1: cell.alignment = Alignment(horizontal="center")
 
-    # 填寫右邊學生
     for r_idx, s_row in enumerate(student_rows, 2):
         for c_idx, val in enumerate(s_row, 7):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
@@ -235,17 +240,15 @@ def generate_master_excel(df_students, df_books):
             if c_idx != 8: cell.alignment = Alignment(horizontal="center")
             if c_idx == 13: cell.font = Font(bold=True)
 
-    # 全班總計
     last_row = max(len(book_rows), len(student_rows)) + 2
     ws.cell(row=last_row, column=12, value="班級總計").font = Font(bold=True)
     total_sum = sum([s[-1] for s in student_rows])
     tot_cell = ws.cell(row=last_row, column=13, value=total_sum)
     tot_cell.font = Font(bold=True, color="FF0000"); tot_cell.border = thin_border
 
-    # 設定欄寬
     ws.column_dimensions['A'].width = 35; ws.column_dimensions['B'].width = 8
     ws.column_dimensions['C'].width = 10; ws.column_dimensions['D'].width = 10; ws.column_dimensions['E'].width = 8
-    ws.column_dimensions['F'].width = 3  # 空白分隔欄
+    ws.column_dimensions['F'].width = 3  
     ws.column_dimensions['G'].width = 6 ; ws.column_dimensions['H'].width = 12
     ws.column_dimensions['I'].width = 8 ; ws.column_dimensions['J'].width = 8
     ws.column_dimensions['K'].width = 8 ; ws.column_dimensions['L'].width = 8
@@ -281,7 +284,6 @@ if sheet_url:
                     
                 st.balloons()
                 
-                # 建立左右兩個按鈕
                 col1, col2 = st.columns(2)
                 with col1:
                     st.download_button(
