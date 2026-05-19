@@ -85,6 +85,13 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
     c = canvas.Canvas(pdf_io, pagesize=A4)
     width, height = A4
     current_font = 'CustomFont' if HAS_FONT else 'Helvetica'
+    
+    # 協助將抓到的字串強制轉為小數第二位的安全函數
+    def fmt_2f(val):
+        try:
+            return f"{float(val):.2f}"
+        except:
+            return str(val)
 
     for _, row in df_students.iterrows():
         c.setFont(current_font, 24)
@@ -94,7 +101,6 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
         c.drawString(60, height - 120, f"座號: {int(row['座號'])}      姓名: {row['姓名']}")
         c.line(60, height - 130, width - 60, height - 130)
         
-        # 直接使用老師算好的高標與平均
         y_pos = height - 165
         c.setFont(current_font, 11)
         
@@ -104,23 +110,24 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
             display_subs = ['國文', '英文', '數學', '自然', '社會']
 
         for s in display_subs:
-            # 防呆：如果老師的表沒算社會科平均，就不印出括號
             high = df_stats.get(s, {}).get('高標', '')
             avg = df_stats.get(s, {}).get('平均', '')
             
+            # 使用小數第二位格式化
+            stat_str = f"  (均: {fmt_2f(avg)} | 高: {fmt_2f(high)})" if str(avg) != 'nan' and avg != '' else ""
+            
+            # 學生個人分數也轉小數第二位
             if s in ['歷史', '地理', '公民']:
-                stat_str = f"  (均: {avg} | 高: {high})" if str(avg) != 'nan' else ""
-                c.drawString(65, y_pos, f"  └ {s}: {row.get(s, 0):.1f}{stat_str}")
+                c.drawString(65, y_pos, f"  └ {s}: {row.get(s, 0):.2f}{stat_str}")
             else:
-                stat_str = f"  (均: {avg} | 高: {high})" if str(avg) != 'nan' else ""
-                c.drawString(65, y_pos, f"{s}: {row.get(s, 0):.1f}{stat_str}")
+                c.drawString(65, y_pos, f"{s}: {row.get(s, 0):.2f}{stat_str}")
             y_pos -= 25
             
         y_pos -= 10
         c.setFont(current_font, 13)
-        c.drawString(65, y_pos, f"五科總分 :  {row['總分']:.1f}")
+        c.drawString(65, y_pos, f"五科總分 :  {row['總分']:.2f}")
         c.drawString(65, y_pos - 25, f"班級名次 :  第 {int(row['名次'])} 名")
-        c.drawString(65, y_pos - 50, f"總分 PR 值 :  {row['總PR']:.1f}")
+        c.drawString(65, y_pos - 50, f"總分 PR 值 :  {row['總PR']:.2f}")
 
         # 雷達圖
         radar_subs = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民'] if has_7_subjects else ['國文', '英文', '數學', '自然', '社會']
@@ -144,10 +151,10 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
             c.drawString(65, msg_y, line)
             msg_y -= 18
 
-        # 反省區
-        box_y = msg_y - 120
+        # 反省區 (往下調整 box_y 參數)
+        box_y = msg_y - 150 # 原本是 -120，這裡加大間距往下移
         c.setFont(current_font, 12)
-        c.drawString(60, box_y + 130, "【自我反省與下階段目標】")
+        c.drawString(60, box_y + 125, "【自我反省與下階段目標】") # 標題也一併調整對齊
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
         c.roundRect(60, box_y, width - 120, 115, 8, stroke=1, fill=0)
         
@@ -156,7 +163,7 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
     pdf_io.seek(0)
     return pdf_io
 
-st.title("📈 成績單產生器 (嚴格照抄試算表版)")
+st.title("📈 801 專屬成績單產生器 (完美對齊版)")
 
 default_url = "https://docs.google.com/spreadsheets/d/1lp0F45BnLO0Hn2l47vJ7orawr0KfIaT_/edit?gid=1366647975#gid=1366647975"
 sheet_url = st.text_input("🔗 成績試算表網址：", value=default_url)
@@ -168,22 +175,18 @@ if sheet_url:
             with st.spinner("正在讀取您的原始數據..."):
                 raw_df = pd.read_csv(csv_url)
                 
-                # --- 1. 分離學生資料與底部統計資料 ---
-                # 將座號轉數字，成功的是學生，失敗的(NaN)可能就是底部文字
                 raw_df['_is_student'] = pd.to_numeric(raw_df['座號'], errors='coerce').notna()
                 
-                # 學生資料
                 df_students = raw_df[raw_df['_is_student']].copy()
                 df_students['座號'] = pd.to_numeric(df_students['座號'])
                 df_students = df_students[df_students['座號'] > 0]
                 
-                # 統計資料 (直接抓您寫的高標與平均)
                 df_bottom = raw_df[~raw_df['_is_student']].copy()
                 stats_dict = {}
                 cols_to_extract = ['國文', '英文', '數學', '自然', '社會', '歷史', '地理', '公民']
                 
                 for _, row in df_bottom.iterrows():
-                    row_name = str(row['座號']).strip() # 假設您的「高標」二字寫在座號或姓名欄
+                    row_name = str(row['座號']).strip() 
                     if '高標' in row_name or '高標' in str(row['姓名']):
                         for c in cols_to_extract:
                             if c in row:
@@ -195,21 +198,18 @@ if sheet_url:
                                 if c not in stats_dict: stats_dict[c] = {}
                                 stats_dict[c]['平均'] = row[c]
 
-                # --- 2. 轉換分數格式 ---
                 for col in cols_to_extract:
                     if col in df_students.columns:
                         df_students[col] = pd.to_numeric(df_students[col], errors='coerce').fillna(0)
                 
                 has_7_subjects = all(c in df_students.columns for c in ['歷史', '地理', '公民'])
                 
-                # --- 3. 計算 PR 與 名次 (這部分還是得算，不然沒法畫圖) ---
                 if has_7_subjects:
                     radar_subjects = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民']
                 else:
                     radar_subjects = ['國文', '英文', '數學', '自然', '社會']
                     if '社會' not in df_students.columns: df_students['社會'] = 0
 
-                # 總分依據試算表是否有該欄位，直接沿用或計算
                 if '總分' not in df_students.columns:
                     if has_7_subjects:
                         df_students['總分'] = df_students['國文'] + df_students['英文'] + df_students['數學'] + df_students['自然'] + (df_students['歷史'] + df_students['地理'] + df_students['公民']) / 3
@@ -226,13 +226,13 @@ if sheet_url:
                 df_students = df_students.sort_values(by='座號').reset_index(drop=True)
                 student_count = len(df_students)
                 
-            st.success(f"✅ 成功鎖定！已讀取 {student_count} 位學生，並成功抓取您設定的高標與平均。")
-            st.write("您設定的底部統計數據預覽：", stats_dict)
+            st.success(f"✅ 成功鎖定！已讀取 {student_count} 位學生，所有分數皆已調整為小數點第二位。")
             
-            if st.button("🚀 產生 PDF 成績單 (完全照抄版)", type="primary"):
-                with st.spinner("繪製中..."):
+            if st.button("🚀 產生最終版 PDF 成績單", type="primary"):
+                with st.spinner("完美排版中..."):
                     pdf_data = generate_pdf_report(df_students, stats_dict, radar_subjects, has_7_subjects)
                     
-                st.download_button("📥 下載 PDF", pdf_data, "成績單_完美版.pdf", "application/pdf")
+                st.balloons()
+                st.download_button("📥 下載終極版 PDF", pdf_data, "成績單_完美版.pdf", "application/pdf")
         except Exception as e:
             st.error(f"❌ 錯誤：{e}")
