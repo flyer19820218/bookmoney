@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.subplots as plt
 import matplotlib.pyplot as plt
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -126,9 +127,11 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         c.drawString(65, y_pos - 25, f"班級名次 :  第 {int(row['名次'])} 名")
         c.drawString(65, y_pos - 50, f"總分 PR 值 :  {row['總PR']:.2f}")
 
+        # 雷達圖
         radar_subs = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民'] if has_7_subjects else ['國文', '英文', '數學', '自然', '社會']
         pr_scores = [row[f'{s}_PR'] for s in radar_subs]
         chart_img = create_pr_radar_chart(radar_subs, pr_scores)
+        
         c.drawImage(ImageReader(chart_img), width - 360, height - 450, width=320, height=320, preserveAspectRatio=True, mask='auto')
         
         # --- 導師的話 ---
@@ -140,21 +143,26 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         c.setFont(current_font, 11) 
         
         msg_lines = []
-        # 字體變大，單行字數稍微調降到 33 字以防超出版面
+        # 字數限制 33，配合大字體
         for i in range(0, len(selected_quote), 33):
             msg_lines.append(selected_quote[i:i+33])
 
         msg_y -= 20
         for line in msg_lines:
             c.drawString(65, msg_y, line)
-            msg_y -= 20 # 行距也稍微調大一點點搭配大字體
+            msg_y -= 20 
 
-        # --- 反省區 (往上提) ---
-        box_y = height - 615 # 往上提！原本是 -630
+        # --- 反省區 (絕對座標，鎖死在完美位置) ---
+        # 剛剛的 -615 太高噴到中間去了。之前的 -780 是剛好在下面。
+        # 您說往上調「一行」，一行大約是 20 單位，所以我把它鎖死在 height - 760
+        box_bottom_y = height - 760 
+        
         c.setFont(current_font, 12)
-        c.drawString(60, box_y + 125, "【自我反省與下階段目標】") 
+        # 標題固定在框框上方 125 的位置
+        c.drawString(60, box_bottom_y + 125, "【自我反省與下階段目標】") 
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
-        c.roundRect(60, box_y, width - 120, 115, 8, stroke=1, fill=0)
+        # 框框高度 115，從 box_bottom_y 開始往上畫
+        c.roundRect(60, box_bottom_y, width - 120, 115, 8, stroke=1, fill=0)
         
         c.showPage()
     c.save()
@@ -162,7 +170,7 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
     return pdf_io
 
 quotes_list = [
-    "✏️ 我想自己寫...", # 新增自訂選項
+    "✏️ 我想自己寫...", 
     "每次的考試都是檢視自己學習歷程的絕佳機會。無論結果如何，這都只是學習旅程中的一個標記。請保持求知若渴的心，繼續穩紮穩打，未來的你一定會感謝現在努力的自己！",
     "分數只是數字，更重要的是你從中學到了什麼。找出自己的弱點並勇敢面對它，就是進步的開始。老師相信你的潛力無限，下個階段我們一起設定新目標，繼續前進！",
     "「不怕慢，只怕站。」學習就像跑馬拉松，重點不是瞬間的爆發力，而是持續不懈的毅力。調整好步伐，堅持每天進步一點點，最後的勝利一定屬於你。",
@@ -204,7 +212,6 @@ sheet_url = st.text_input("🔗 請在此貼上「您自己的成績試算表」
 st.markdown("### 💬 選擇要印在成績單上的導師勉勵")
 selected_quote = st.selectbox("請選擇一段符合班級現狀的鼓勵語：", quotes_list)
 
-# 自訂文字輸入邏輯
 if selected_quote == "✏️ 我想自己寫...":
     st.warning("⚠️ **請注意：為了不與下方的學生反省區重疊，請務必將字數控制在 120 字以內！**")
     custom_quote = st.text_area("請在此輸入您的自訂勉勵語：", max_chars=120)
