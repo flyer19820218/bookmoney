@@ -8,91 +8,67 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 import io
-import requests
+import re
 
-# 為了穩定，固定使用 Agg 畫圖
+# 確保繪圖不會因為環境衝突而失效
 import matplotlib
 matplotlib.use('Agg')
 
-# ==========================================
-# 1. 核心繪圖函數 (強化雷達圖)
-# ==========================================
-def create_radar_chart(labels, scores, avg_scores):
-    # 設定字體 (嘗試使用內建或指定)
-    try:
-        plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei', 'sans-serif']
-    except:
-        pass
-    
-    num_vars = len(labels)
-    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
-    
-    scores = scores + [scores[0]]
-    avg_scores = avg_scores + [avg_scores[0]]
-    angles = angles + [angles[0]]
-    
-    fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
-    ax.set_theta_offset(np.pi / 2)
-    ax.set_theta_direction(-1)
-    
-    ax.set_thetagrids(np.degrees(angles[:-1]), labels, fontsize=10)
-    ax.set_ylim(0, 100)
-    
-    # 畫線
-    ax.plot(angles, scores, color='#1f77b4', linewidth=2, label='學生')
-    ax.fill(angles, scores, color='#1f77b4', alpha=0.2)
-    ax.plot(angles, avg_scores, color='#d62728', linewidth=2, linestyle='--', label='平均')
-    
-    img_io = io.BytesIO()
-    plt.savefig(img_io, format='png', bbox_inches='tight', dpi=100)
-    plt.close(fig)
-    img_io.seek(0)
-    return img_io
+st.set_page_config(page_title="班級成績單公版產生器", layout="wide")
 
 # ==========================================
-# 2. 核心 PDF 產生函數 (徹底修正排版)
+# 1. 核心邏輯：通用資料處理
 # ==========================================
-def generate_pdf(df):
+def get_csv_from_url(url):
+    try:
+        if "docs.google.com" in url:
+            # 強制轉換為 CSV 匯出連結
+            match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
+            if match:
+                sheet_id = match.group(1)
+                return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+        return url
+    except:
+        return None
+
+# ==========================================
+# 2. PDF 生成核心 (公版邏輯)
+# ==========================================
+def generate_pdf(df, subjects):
     pdf_io = io.BytesIO()
     c = canvas.Canvas(pdf_io, pagesize=A4)
     w, h = A4
     
-    # 字體註冊 (若倉庫有字體檔則載入)
-    font = 'Helvetica' # 預設英數
-    if os.path.exists("msjh.ttf"):
-        pdfmetrics.registerFont(TTFont('msjh', 'msjh.ttf'))
-        font = 'msjh'
-    
-    has_7_sub = all(col in df.columns for col in ['歷史', '地理', '公民'])
-    subjects = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民'] if has_7_sub else ['國文', '英文', '數學', '自然', '社會']
-    
-    # 計算全班平均供雷達圖用
+    # 嘗試載入中文字體 (若無法載入，改用 Helvetica 避免程式崩潰)
+    font_name = "msjh"
+    try:
+        # 請確保 GitHub 根目錄有 msjh.ttf，或是系統已有此字體
+        pdfmetrics.registerFont(TTFont(font_name, 'msjh.ttf'))
+    except:
+        font_name = "Helvetica"
+        st.warning("警告：未偵測到中文字體檔(msjh.ttf)，中文可能會顯示為空白。")
+
+    # 計算全班平均
     avg_vals = [df[s].mean() for s in subjects]
     
     for _, row in df.iterrows():
-        c.setFont(font, 20)
+        c.setFont(font_name, 20)
         c.drawCentredString(w/2, h-50, "學生個人成績單")
         
-        c.setFont(font, 14)
-        c.drawString(60, h-100, f"座號: {int(row['座號'])}      姓名: {row['姓名']}")
+        c.setFont(font_name, 14)
+        c.drawString(60, h-100, f"座號: {row['座號']}      姓名: {row['姓名']}")
         c.line(60, h-110, w-60, h-110)
         
-        # 分數明細
-        y = h - 150
+        # 顯示科目分數
+        y = h - 140
         for s in subjects:
             score = row[s] if pd.notna(row[s]) else 0
             c.drawString(70, y, f"{s}: {float(score):.1f}")
             y -= 25
             
-        # 總分與 PR
-        c.setFont(font, 16)
-        c.drawString(70, y-20, f"五科總分: {row['總分']:.1f}")
-        c.drawString(70, y-50, f"PR值: {row['PR值']:.1f}")
+        c.drawString(70, y-20, f"總分: {float(row['總分']):.1f}")
+        c.drawString(70, y-50, f"PR值: {float(row['PR值']):.1f}")
         
-        # 繪圖
-        s_scores = [float(row[s]) if pd.notna(row[s]) else 0 for s in subjects]
-        chart = create_radar_chart(subjects, s_scores, avg_vals)
-        c.drawImage(ImageReader(chart), 250, h-400, 300, 300, mask='auto')
         c.showPage()
     
     c.save()
@@ -100,31 +76,42 @@ def generate_pdf(df):
     return pdf_io
 
 # ==========================================
-# 3. Streamlit 網頁主程式
+# 3. UI 介面
 # ==========================================
-st.title("📊 801 班級成績單自動化系統")
+st.title("📊 班級成績單通用公版")
+st.markdown("請確認您的 Google Sheet 第一列包含：**座號、姓名、國文、英文、數學、自然、社會** (或歷史、地理、公民)")
+
 url = st.text_input("輸入成績試算表網址：")
 
 if url:
-    # 抓資料並清理
+    csv_url = get_csv_from_url(url)
     try:
-        csv_url = get_google_sheet_csv_url(url)
         df = pd.read_csv(csv_url)
-        # 強制過濾座號 1-31
+        
+        # 自動清理資料：移除沒有座號的列
         df['座號'] = pd.to_numeric(df['座號'], errors='coerce')
-        df = df[df['座號'].between(1, 31)].sort_values('座號')
+        df = df.dropna(subset=['座號']).sort_values('座號')
         
-        # 計算總分 (自動切換)
-        if all(col in df.columns for col in ['歷史', '地理', '公民']):
+        # 動態偵測科目
+        all_cols = df.columns.tolist()
+        potential_subjects = ['國文', '英文', '數學', '自然', '社會', '歷史', '地理', '公民']
+        found_subjects = [s for s in potential_subjects if s in all_cols]
+        
+        st.write(f"✅ 系統已抓取到 {len(df)} 位學生，偵測到的科目: {', '.join(found_subjects)}")
+        
+        # 計算總分與 PR
+        if '歷史' in found_subjects: # 七科版
             df['總分'] = df['國文'] + df['英文'] + df['數學'] + df['自然'] + (df['歷史'] + df['地理'] + df['公民'])/3
-        else:
+        else: # 五科版
             df['總分'] = df['國文'] + df['英文'] + df['數學'] + df['自然'] + df['社會']
-        
+            
         df['PR值'] = df['總分'].rank(pct=True) * 100
         
-        st.write(f"✅ 讀取到 {len(df)} 位學生資料")
-        if st.button("產生全班成績單"):
-            pdf = generate_pdf(df)
+        st.dataframe(df.head(5)) # 預覽前5筆
+        
+        if st.button("產生全班 PDF 成績單"):
+            pdf = generate_pdf(df, found_subjects)
             st.download_button("下載 PDF", pdf, "成績單.pdf", "application/pdf")
+            
     except Exception as e:
-        st.error(f"資料讀取失敗，請確認欄位名稱正確：{e}")
+        st.error(f"❌ 發生錯誤，請檢查您的試算表格式: {e}")
