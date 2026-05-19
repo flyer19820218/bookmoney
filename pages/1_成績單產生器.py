@@ -18,34 +18,37 @@ import matplotlib
 matplotlib.use('Agg')
 
 # ==========================================
-# 0. 網頁基本設定 & 字體準備（支援雲端部署防呆）
+# 0. 網頁基本設定 & 字體準備
 # ==========================================
 st.set_page_config(page_title="AI 成績單產生器", layout="centered", page_icon="📈")
 
+# 因為你已經把檔案放進資料夾了，程式會自動偵測並直接讀取它！
 FONT_NAME = "NotoSansTC-Regular.ttf"
-# 改用 Google Fonts 的 static 靜態版本網址，避免抓到變體字型 (Variable Font) 導致 ReportLab 噴錯
-FONT_URL = "https://github.com/google/fonts/raw/main/ofl/notosanstc/static/NotoSansTC-Regular.ttf"
+FONT_URL = "https://cdn.jsdelivr.net/gh/themoeway/noto-sans-tc-ttf@master/ttf/NotoSansTC-Regular.ttf"
 
 @st.cache_resource
 def init_fonts():
-    """初始化字體：自動下載並註冊到 Matplotlib 與 ReportLab"""
+    """初始化字體：自動偵測本地字體，若無則從網路下載，並註冊到 Matplotlib 與 ReportLab"""
     if not os.path.exists(FONT_NAME):
         try:
-            with st.spinner("首次執行，正在下載中文字體 (Noto Sans TC)..."):
-                import urllib.request
-                urllib.request.urlretrieve(FONT_URL, FONT_NAME)
+            with st.spinner("未偵測到本地字體，正在從網路下載中文字體 (Noto Sans TC)..."):
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                response = requests.get(FONT_URL, headers=headers, timeout=60)
+                response.raise_for_status()
+                with open(FONT_NAME, "wb") as f:
+                    f.write(response.content)
         except Exception as e:
-            st.error(f"字體下載失敗，請手動將 {FONT_NAME} 放置於專案根目錄。錯誤: {e}")
+            st.error(f"字體下載失敗，請確保 {FONT_NAME} 已手動放置於專案根目錄。錯誤: {e}")
             return False
     
     try:
-        # 1. 強制註冊字體到 Matplotlib
+        # 1. 強制註冊字體到 Matplotlib (解決雷達圖中文變方塊的問題)
         font_manager.fontManager.addfont(FONT_NAME)
         dynamic_font_name = font_manager.FontProperties(fname=FONT_NAME).get_name()
         plt.rcParams['font.sans-serif'] = [dynamic_font_name, 'Microsoft JhengHei', 'Arial']
         plt.rcParams['axes.unicode_minus'] = False
         
-        # 2. 註冊字體到 ReportLab
+        # 2. 註冊字體到 ReportLab (解決 PDF 中文變成空白的問題)
         pdfmetrics.registerFont(TTFont('CustomFont', FONT_NAME))
         return True
     except Exception as e:
@@ -91,7 +94,7 @@ def create_radar_chart(labels, scores):
     num_vars = len(labels)
     angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
     
-    # 【防呆修正】複製 list 避免修改到原始陣列
+    # 【修正防呆】使用 list() 複製新列表，防止 Streamlit 重新整理時陣列無限拉長噴錯
     plot_scores = list(scores) + [scores[0]]
     angles = angles + [angles[0]]
     
@@ -118,7 +121,7 @@ def generate_pdf_report(df):
     c = canvas.Canvas(pdf_io, pagesize=A4)
     width, height = A4
     
-    # 根據字體註冊結果決定 PDF 字體（防呆落入 Helvetica 導致中文變空白）
+    # 根據字體註冊結果決定 PDF 字體，確保中文能正常顯示
     current_font = 'CustomFont' if HAS_FONT else 'Helvetica'
     
     has_7_subjects = all(col in df.columns for col in ['歷史', '地理', '公民'])
@@ -211,9 +214,9 @@ if sheet_url:
             preview_cols = [c for c in ['座號', '姓名', '國文', '英文', '數學', '自然'] if c in df_scores.columns]
             st.dataframe(df_scores[preview_cols].head(5))
             
-            # 如果字體載入失敗，阻擋下載按鈕以防產出空白 PDF
+            # 檢查字體載入狀態（雙重防呆）
             if not HAS_FONT:
-                st.error("⚠️ 系統未能成功載入中文字體，產出的 PDF 將無法正常顯示中文。請檢查網路連線或重整網頁。")
+                st.error("⚠️ 系統未能成功載入中文字體，產出的 PDF 將無法正常顯示中文。")
             else:
                 if st.button(f"🚀 一鍵產生 {student_count} 人 PDF 成績單", type="primary"):
                     with st.spinner("AI 正在繪製成績地圖與排版 PDF，這會花幾秒鐘的時間..."):
