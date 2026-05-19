@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.subplots as plt
 import matplotlib.pyplot as plt
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -152,17 +151,11 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
             c.drawString(65, msg_y, line)
             msg_y -= 20 
 
-        # --- 反省區 (絕對座標，鎖死在完美位置) ---
-        # 剛剛的 -615 太高噴到中間去了。之前的 -780 是剛好在下面。
-        # 您說往上調「一行」，一行大約是 20 單位，所以我把它鎖死在 height - 760
-        box_bottom_y = height - 660 
-        
+        # --- 反省區 (往下平移 100 像素) ---
         c.setFont(current_font, 12)
-        # 標題固定在框框上方 125 的位置
-        c.drawString(60, box_bottom_y + 125, "【自我反省與下階段目標】") 
+        c.drawString(60, height - 700, "【自我反省與下階段目標】") 
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
-        # 框框高度 115，從 box_bottom_y 開始往上畫
-        c.roundRect(60, box_bottom_y, width - 120, 115, 8, stroke=1, fill=0)
+        c.roundRect(60, height - 830, width - 120, 115, 8, stroke=1, fill=0)
         
         c.showPage()
     c.save()
