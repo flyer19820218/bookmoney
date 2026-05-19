@@ -160,9 +160,9 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
 
         # --- 反省區 (往下平移 40 像素) ---
         c.setFont(current_font, 12)
-        c.drawString(60, height - 640, "【自我反省與下階段目標】") 
+        c.drawString(60, height - 620, "【自我反省與下階段目標】") 
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
-        c.roundRect(60, height - 770, width - 120, 115, 8, stroke=1, fill=0)
+        c.roundRect(60, height - 750, width - 120, 115, 8, stroke=1, fill=0)
         
         c.showPage()
     c.save()
