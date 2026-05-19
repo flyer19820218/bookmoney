@@ -65,7 +65,6 @@ def create_pr_radar_chart(labels, pr_scores):
     
     display_labels = [f"{label}\n(PR)" for label in labels]
     ax.set_thetagrids(np.degrees(angles[:-1]), display_labels, fontsize=10)
-    
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
     ax.set_yticklabels(["25", "50", "75", "100"], color="grey", size=8)
@@ -73,7 +72,6 @@ def create_pr_radar_chart(labels, pr_scores):
     ax.plot(angles, [50]*len(angles), color='#C0504D', linewidth=1.5, linestyle='--', label='PR 50 (中位數)')
     ax.plot(angles, plot_scores, color='#4F81BD', linewidth=2, linestyle='solid', label='個人優勢')
     ax.fill(angles, plot_scores, color='#4F81BD', alpha=0.35)
-    
     plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), fontsize=9, ncol=2)
     
     img_io = io.BytesIO()
@@ -128,36 +126,35 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         c.drawString(65, y_pos - 25, f"班級名次 :  第 {int(row['名次'])} 名")
         c.drawString(65, y_pos - 50, f"總分 PR 值 :  {row['總PR']:.2f}")
 
-        # 雷達圖
         radar_subs = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民'] if has_7_subjects else ['國文', '英文', '數學', '自然', '社會']
         pr_scores = [row[f'{s}_PR'] for s in radar_subs]
         chart_img = create_pr_radar_chart(radar_subs, pr_scores)
-        
         c.drawImage(ImageReader(chart_img), width - 360, height - 450, width=320, height=320, preserveAspectRatio=True, mask='auto')
         
-        # --- 導師的話 (精準斷行排版) ---
+        # --- 導師的話 ---
         msg_y = height - 480
         c.setFont(current_font, 12)
         c.drawString(60, msg_y, "【導師勉勵】")
-        c.setFont(current_font, 10)
+        
+        # 字體放大 10% (10 -> 11)
+        c.setFont(current_font, 11) 
         
         msg_lines = []
-        for i in range(0, len(selected_quote), 35):
-            msg_lines.append(selected_quote[i:i+35])
+        # 字體變大，單行字數稍微調降到 33 字以防超出版面
+        for i in range(0, len(selected_quote), 33):
+            msg_lines.append(selected_quote[i:i+33])
 
         msg_y -= 20
         for line in msg_lines:
             c.drawString(65, msg_y, line)
-            msg_y -= 18
+            msg_y -= 20 # 行距也稍微調大一點點搭配大字體
 
-        # --- 反省區 (絕對座標，徹底解決重疊問題) ---
-        # 標題固定在 height - 650
+        # --- 反省區 (往上提) ---
+        box_y = height - 615 # 往上提！原本是 -630
         c.setFont(current_font, 12)
-        c.drawString(60, height - 650, "【自我反省與下階段目標】") 
-        
-        # 框框固定畫在 height - 780 (框框高度115，頂部為 height-665)
+        c.drawString(60, box_y + 125, "【自我反省與下階段目標】") 
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
-        c.roundRect(60, height - 780, width - 120, 115, 8, stroke=1, fill=0)
+        c.roundRect(60, box_y, width - 120, 115, 8, stroke=1, fill=0)
         
         c.showPage()
     c.save()
@@ -165,6 +162,7 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
     return pdf_io
 
 quotes_list = [
+    "✏️ 我想自己寫...", # 新增自訂選項
     "每次的考試都是檢視自己學習歷程的絕佳機會。無論結果如何，這都只是學習旅程中的一個標記。請保持求知若渴的心，繼續穩紮穩打，未來的你一定會感謝現在努力的自己！",
     "分數只是數字，更重要的是你從中學到了什麼。找出自己的弱點並勇敢面對它，就是進步的開始。老師相信你的潛力無限，下個階段我們一起設定新目標，繼續前進！",
     "「不怕慢，只怕站。」學習就像跑馬拉松，重點不是瞬間的爆發力，而是持續不懈的毅力。調整好步伐，堅持每天進步一點點，最後的勝利一定屬於你。",
@@ -205,6 +203,14 @@ sheet_url = st.text_input("🔗 請在此貼上「您自己的成績試算表」
 
 st.markdown("### 💬 選擇要印在成績單上的導師勉勵")
 selected_quote = st.selectbox("請選擇一段符合班級現狀的鼓勵語：", quotes_list)
+
+# 自訂文字輸入邏輯
+if selected_quote == "✏️ 我想自己寫...":
+    st.warning("⚠️ **請注意：為了不與下方的學生反省區重疊，請務必將字數控制在 120 字以內！**")
+    custom_quote = st.text_area("請在此輸入您的自訂勉勵語：", max_chars=120)
+    final_quote = custom_quote
+else:
+    final_quote = selected_quote
 
 if sheet_url:
     csv_url = get_google_sheet_csv_url(sheet_url)
@@ -267,10 +273,13 @@ if sheet_url:
             st.success(f"✅ 成功鎖定！已讀取 {student_count} 位學生資料與各科高標/平均值。")
             
             if st.button("🚀 產生全班 PDF 成績單", type="primary"):
-                with st.spinner("完美排版中，請稍候..."):
-                    pdf_data = generate_pdf_report(df_students, stats_dict, radar_subjects, has_7_subjects, selected_quote)
-                    
-                st.balloons()
-                st.download_button("📥 下載全班成績單 (PDF)", pdf_data, "成績單_完美版.pdf", "application/pdf")
+                if final_quote.strip() == "":
+                    st.warning("⚠️ 請記得選擇或輸入導師勉勵語喔！")
+                else:
+                    with st.spinner("完美排版中，請稍候..."):
+                        pdf_data = generate_pdf_report(df_students, stats_dict, radar_subjects, has_7_subjects, final_quote)
+                        
+                    st.balloons()
+                    st.download_button("📥 下載全班成績單 (PDF)", pdf_data, "成績單_完美版.pdf", "application/pdf")
         except Exception as e:
             st.error(f"❌ 發生錯誤，請確認您的試算表欄位名稱是否與公版一致：{e}")
