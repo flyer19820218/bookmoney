@@ -163,7 +163,7 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
     pdf_io.seek(0)
     return pdf_io
 
-st.title("📈 801 專屬成績單產生器 (完美對齊版)")
+st.title("📈成績單產生器")
 
 default_url = "https://docs.google.com/spreadsheets/d/1lp0F45BnLO0Hn2l47vJ7orawr0KfIaT_/edit?gid=1366647975#gid=1366647975"
 sheet_url = st.text_input("🔗 成績試算表網址：", value=default_url)
