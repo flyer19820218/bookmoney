@@ -86,7 +86,6 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
     width, height = A4
     current_font = 'CustomFont' if HAS_FONT else 'Helvetica'
     
-    # 協助將抓到的字串強制轉為小數第二位的安全函數
     def fmt_2f(val):
         try:
             return f"{float(val):.2f}"
@@ -113,10 +112,8 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
             high = df_stats.get(s, {}).get('高標', '')
             avg = df_stats.get(s, {}).get('平均', '')
             
-            # 使用小數第二位格式化
             stat_str = f"  (均: {fmt_2f(avg)} | 高: {fmt_2f(high)})" if str(avg) != 'nan' and avg != '' else ""
             
-            # 學生個人分數也轉小數第二位
             if s in ['歷史', '地理', '公民']:
                 c.drawString(65, y_pos, f"  └ {s}: {row.get(s, 0):.2f}{stat_str}")
             else:
@@ -151,10 +148,10 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
             c.drawString(65, msg_y, line)
             msg_y -= 18
 
-        # 反省區 (往下調整 box_y 參數)
-        box_y = msg_y - 150 # 原本是 -120，這裡加大間距往下移
+        # 反省區
+        box_y = msg_y - 150 
         c.setFont(current_font, 12)
-        c.drawString(60, box_y + 125, "【自我反省與下階段目標】") # 標題也一併調整對齊
+        c.drawString(60, box_y + 125, "【自我反省與下階段目標】") 
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
         c.roundRect(60, box_y, width - 120, 115, 8, stroke=1, fill=0)
         
@@ -163,10 +160,26 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects):
     pdf_io.seek(0)
     return pdf_io
 
-st.title("📈成績單產生器")
+# ==========================================
+# 網頁 UI 介面設定
+# ==========================================
+st.title("📈 班級成績單自動產生器")
 
-default_url = "https://docs.google.com/spreadsheets/d/1lp0F45BnLO0Hn2l47vJ7orawr0KfIaT_/edit?gid=1366647975#gid=1366647975"
-sheet_url = st.text_input("🔗 成績試算表網址：", value=default_url)
+# === 【新增】網頁使用說明與公版連結 ===
+st.markdown("---")
+st.markdown("### 📝 使用教學")
+st.info("""
+歡迎使用成績單產生系統！請依照以下 **3 個步驟** 操作：
+1. **取得公版檔案**：請點擊下方連結，複製一份專屬的試算表到您的雲端硬碟。
+   👉 [**點我取得公版成績單 (Google Sheets)**](https://reurl.cc/9Wqr6v)
+2. **輸入學生成績**：在您複製的表格中填入班級成績，請保留表格底部的「高標」與「平均」列，系統會自動抓取這些數值。
+3. **貼上連結產出**：將您填好的試算表網址貼在下方框框，點擊按鈕即可一鍵產出全班 PDF！
+   *(💡 記得將試算表共用權限設為「**知道連結的人均可檢視**」喔！)*
+""")
+st.markdown("---")
+# =====================================
+
+sheet_url = st.text_input("🔗 請在此貼上您的成績試算表網址：", placeholder="https://docs.google.com/spreadsheets/d/...")
 
 if sheet_url:
     csv_url = get_google_sheet_csv_url(sheet_url)
@@ -226,13 +239,13 @@ if sheet_url:
                 df_students = df_students.sort_values(by='座號').reset_index(drop=True)
                 student_count = len(df_students)
                 
-            st.success(f"✅ 成功鎖定！已讀取 {student_count} 位學生，所有分數皆已調整為小數點第二位。")
+            st.success(f"✅ 成功鎖定！已讀取 {student_count} 位學生資料與各科高標/平均值。")
             
-            if st.button("🚀 產生最終版 PDF 成績單", type="primary"):
-                with st.spinner("完美排版中..."):
+            if st.button("🚀 產生全班 PDF 成績單", type="primary"):
+                with st.spinner("完美排版中，請稍候..."):
                     pdf_data = generate_pdf_report(df_students, stats_dict, radar_subjects, has_7_subjects)
                     
                 st.balloons()
-                st.download_button("📥 下載終極版 PDF", pdf_data, "成績單_完美版.pdf", "application/pdf")
+                st.download_button("📥 下載全班成績單 (PDF)", pdf_data, "成績單_完美版.pdf", "application/pdf")
         except Exception as e:
-            st.error(f"❌ 錯誤：{e}")
+            st.error(f"❌ 發生錯誤，請確認您的試算表欄位名稱是否與公版一致：{e}")
