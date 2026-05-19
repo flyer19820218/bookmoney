@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.font_manager import FontProperties
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -12,19 +11,34 @@ import re
 import io
 import requests
 import os
-import urllib.request
+
+# 解決 matplotlib 在 Streamlit 上的執行緒警告
+import matplotlib
+matplotlib.use('Agg')
 
 # ==========================================
-# 0. 網頁基本與字體設定 (防呆：自動下載中文字體)
+# 0. 網頁基本設定 & 字體準備
 # ==========================================
 st.set_page_config(page_title="AI 成績單產生器", layout="centered", page_icon="📈")
 
-# 自動下載 NotoSans 中文字體，解決 PDF 亂碼問題
-font_path = "NotoSansTC-Regular.ttf"
-if not os.path.exists(font_path):
-    with st.spinner("首次啟動，正在為您安裝中文字體，請稍候..."):
-        font_url = "https://github.com/google/fonts/raw/main/ofl/notosanstc/NotoSansTC-Regular.ttf"
-        urllib.request.urlretrieve(font_url, font_path)
+# 【防護機制】確保有字體檔可以畫中文。如果真的沒有，就先用系統預設
+# 老師請注意：若要在 Streamlit Cloud 完美顯示中文，建議將一個中文字體檔 (如 msjh.ttc 或 NotoSans.ttf) 
+# 直接上傳到您的 GitHub 資料夾，並將下方的 'msjh.ttc' 改成您的字體檔名。
+FONT_NAME = "NotoSansTC-Regular.ttf"
+HAS_FONT = os.path.exists(FONT_NAME)
+
+if not HAS_FONT:
+    # 退而求其次的備用方案下載
+    try:
+        import urllib.request
+        urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/notosanstc/NotoSansTC-Regular.ttf", FONT_NAME)
+        HAS_FONT = True
+    except:
+        pass
+
+if HAS_FONT:
+    plt.rcParams['font.sans-serif'] = ['Noto Sans TC', 'Microsoft JhengHei', 'sans-serif']
+    plt.rcParams['axes.unicode_minus'] = False
 
 # ==========================================
 # 1. 說明區
@@ -37,8 +51,6 @@ with st.expander("👉 點我查看【試算表標準格式】說明", expanded=
     **請確保您的試算表第一列有以下欄位名稱 (順序不拘)：**
     * **一年級版**：`座號`、`姓名`、`國文`、`英文`、`數學`、`自然`、`社會`
     * **二三年級版**：`座號`、`姓名`、`國文`、`英文`、`數學`、`自然`、`歷史`、`地理`、`公民`
-    
-    *(系統會自動判斷您是否有輸入史地公，自動切換 5 科或 7 科雷達圖，並統一以「5科」計算總分與平均)*
     """)
 
 # ==========================================
@@ -60,7 +72,6 @@ def get_google_sheet_csv_url(url):
 
 def create_radar_chart(labels, scores):
     """繪製雷達圖並回傳圖片記憶體物件"""
-    font_prop = FontProperties(fname=font_path)
     num_vars = len(labels)
     angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
     
@@ -68,12 +79,14 @@ def create_radar_chart(labels, scores):
     scores = scores + [scores[0]]
     angles = angles + [angles[0]]
     
+    # 使用 Agg 背景畫圖，避免 Streamlit 報錯
     fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     
     # 畫座標軸與標籤
-    ax.set_thetagrids(np.degrees(angles[:-1]), labels, fontproperties=font_prop, fontsize=12)
+    # 如果沒有字體，可能會顯示方塊，但程式不會崩潰
+    ax.set_thetagrids(np.degrees(angles[:-1]), labels, fontsize=12)
     ax.set_ylim(0, 100)
     ax.set_yticks([20, 40, 60, 80, 100])
     ax.set_yticklabels(["20", "40", "60", "80", "100"], color="grey", size=8)
@@ -82,7 +95,7 @@ def create_radar_chart(labels, scores):
     ax.plot(angles, scores, color='#4F81BD', linewidth=2, linestyle='solid')
     ax.fill(angles, scores, color='#4F81BD', alpha=0.4)
     
-    # 存成圖片
+    # 存成圖片並徹底關閉畫布釋放記憶體
     img_io = io.BytesIO()
     plt.savefig(img_io, format='png', bbox_inches='tight', transparent=True)
     plt.close(fig)
@@ -95,8 +108,16 @@ def generate_pdf_report(df):
     c = canvas.Canvas(pdf_io, pagesize=A4)
     width, height = A4
     
-    # 註冊中文字體
-    pdfmetrics.registerFont(TTFont('NotoSans', font_path))
+    # PDF 中文字體註冊
+    font_registered = False
+    if HAS_FONT:
+        try:
+            pdfmetrics.registerFont(TTFont('CustomFont', FONT_NAME))
+            font_registered = True
+        except:
+            pass
+            
+    current_font = 'CustomFont' if font_registered else 'Helvetica'
     
     # 判斷是 5 科還是 7 科
     has_7_subjects = all(col in df.columns for col in ['歷史', '地理', '公民'])
@@ -119,9 +140,9 @@ def generate_pdf_report(df):
             avg = total / 5
             
             print_text = [
-                f"國文：{scores_dict['國文']}", f"英文：{scores_dict['英文']}", 
-                f"數學：{scores_dict['數學']}", f"自然：{scores_dict['自然']}",
-                f"歷史：{scores_dict['歷史']} | 地理：{scores_dict['地理']} | 公民：{scores_dict['公民']}"
+                f"國文: {scores_dict['國文']}", f"英文: {scores_dict['英文']}", 
+                f"數學: {scores_dict['數學']}", f"自然: {scores_dict['自然']}",
+                f"歷史: {scores_dict['歷史']} | 地理: {scores_dict['地理']} | 公民: {scores_dict['公民']}"
             ]
         else:
             subjects = ['國文', '英文', '數學', '自然', '社會']
@@ -132,36 +153,30 @@ def generate_pdf_report(df):
             radar_scores = [scores_dict[s] for s in subjects]
             total = sum(radar_scores)
             avg = total / 5
-            print_text = [f"{s}：{scores_dict[s]}" for s in subjects]
+            print_text = [f"{s}: {scores_dict[s]}" for s in subjects]
 
         # --- 繪製 PDF 版面 ---
-        # 標題
-        c.setFont('NotoSans', 24)
-        c.drawCentredString(width/2, height - 80, "學 生 個 人 成 績 單")
+        c.setFont(current_font, 24)
+        c.drawCentredString(width/2, height - 80, "學 生 個 人 成 績 單" if font_registered else "Student Report Card")
         
-        # 基本資料
-        c.setFont('NotoSans', 14)
-        c.drawString(100, height - 130, f"座號：{int(seat) if pd.notna(seat) else ''}      姓名：{name}")
-        c.line(100, height - 135, width - 100, height - 135) # 分隔線
+        c.setFont(current_font, 14)
+        c.drawString(100, height - 130, f"座號(No.): {int(seat) if pd.notna(seat) else ''}      姓名(Name): {name}")
+        c.line(100, height - 135, width - 100, height - 135) 
         
-        # 列印各科分數
         y_pos = height - 170
-        c.setFont('NotoSans', 12)
+        c.setFont(current_font, 12)
         for text in print_text:
             c.drawString(120, y_pos, text)
             y_pos -= 25
             
-        # 列印總分與平均 (粗體效果：疊字)
         y_pos -= 10
-        c.drawString(120, y_pos, f"➡ 五科總分：{total:.1f}")
-        c.drawString(120, y_pos - 25, f"➡ 五科平均：{avg:.2f}")
+        c.drawString(120, y_pos, f"五科總分(Total): {total:.1f}")
+        c.drawString(120, y_pos - 25, f"五科平均(Average): {avg:.2f}")
 
         # --- 繪製雷達圖 ---
         chart_img = create_radar_chart(radar_labels, radar_scores)
-        # 將圖片放入 PDF (x, y, width, height)
         c.drawImage(ImageReader(chart_img), 280, height - 420, width=250, height=250, mask='auto')
         
-        # 分頁
         c.showPage()
         
     c.save()
@@ -181,10 +196,9 @@ if sheet_url:
                 df_scores = pd.read_csv(csv_url).fillna(0)
             
             st.success(f"✅ 成功讀取 {len(df_scores)} 位學生的成績！")
-            st.dataframe(df_scores.head(3)) # 預覽前三筆
             
             if st.button("🚀 一鍵產生 PDF 成績單 (附雷達圖)", type="primary"):
-                with st.spinner("AI 正在繪製成績地圖與排版 PDF，這會花幾秒鐘的時間..."):
+                with st.spinner("AI 正在繪製成績地圖與排版 PDF..."):
                     pdf_data = generate_pdf_report(df_scores)
                     
                 st.balloons()
@@ -195,5 +209,5 @@ if sheet_url:
                     mime="application/pdf"
                 )
         except Exception as e:
-            st.error("❌ 讀取失敗！請確認試算表格式是否正確，以及是否已開啟「知道連結的人即可檢視」。")
-            st.warning(f"錯誤細節：{e}")
+            st.error("❌ 產生失敗！請檢查試算表欄位名稱是否為：座號、姓名、國文、英文...")
+            st.warning(f"系統錯誤訊息：{e}")
