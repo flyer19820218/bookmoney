@@ -1,3 +1,6 @@
+# ==========================================
+# === 區塊 1: 模組與初始化 ===
+# ==========================================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -53,6 +56,9 @@ def get_google_sheet_csv_url(url):
     except: pass
     return None
 
+# ==========================================
+# === 區塊 2: 圖表產生器 ===
+# ==========================================
 def create_pr_radar_chart(labels, pr_scores):
     num_vars = len(labels)
     angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
@@ -80,6 +86,9 @@ def create_pr_radar_chart(labels, pr_scores):
     img_io.seek(0)
     return img_io
 
+# ==========================================
+# === 區塊 3: PDF 產生器 (排版核心) ===
+# ==========================================
 def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selected_quote):
     pdf_io = io.BytesIO()
     c = canvas.Canvas(pdf_io, pagesize=A4)
@@ -138,11 +147,9 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         c.setFont(current_font, 12)
         c.drawString(60, msg_y, "【導師勉勵】")
         
-        # 字體放大 10% (10 -> 11)
         c.setFont(current_font, 11) 
         
         msg_lines = []
-        # 字數限制 33，配合大字體
         for i in range(0, len(selected_quote), 33):
             msg_lines.append(selected_quote[i:i+33])
 
@@ -151,17 +158,20 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
             c.drawString(65, msg_y, line)
             msg_y -= 20 
 
-        # --- 反省區 (往下平移 100 像素) ---
+        # --- 反省區 (往下平移 40 像素) ---
         c.setFont(current_font, 12)
-        c.drawString(60, height - 700, "【自我反省與下階段目標】") 
+        c.drawString(60, height - 640, "【自我反省與下階段目標】") 
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
-        c.roundRect(60, height - 830, width - 120, 115, 8, stroke=1, fill=0)
+        c.roundRect(60, height - 770, width - 120, 115, 8, stroke=1, fill=0)
         
         c.showPage()
     c.save()
     pdf_io.seek(0)
     return pdf_io
 
+# ==========================================
+# === 區塊 4: 網頁 UI 與主程式 ===
+# ==========================================
 quotes_list = [
     "✏️ 我想自己寫...", 
     "每次的考試都是檢視自己學習歷程的絕佳機會。無論結果如何，這都只是學習旅程中的一個標記。請保持求知若渴的心，繼續穩紮穩打，未來的你一定會感謝現在努力的自己！",
@@ -176,9 +186,6 @@ quotes_list = [
     "不要和別人比，只要今天的你比昨天的你進步，這就是最大的成功。每個人都有自己的學習步調，找到適合自己的方法最重要。對自己有信心，你絕對做得到！"
 ]
 
-# ==========================================
-# 網頁 UI 介面設定
-# ==========================================
 st.title("📈 班級成績單自動產生器 (公版)")
 
 st.markdown("---")
