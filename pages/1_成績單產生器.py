@@ -59,7 +59,6 @@ def create_pr_radar_chart(labels, pr_scores):
     plot_scores = list(pr_scores) + [pr_scores[0]]
     angles = angles + [angles[0]]
     
-    # 加大畫布，確保有足夠空間
     fig, ax = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
@@ -67,7 +66,6 @@ def create_pr_radar_chart(labels, pr_scores):
     display_labels = [f"{label}\n(PR)" for label in labels]
     ax.set_thetagrids(np.degrees(angles[:-1]), display_labels, fontsize=10)
     
-    # 嚴格設定半徑範圍為 0 到 100
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
     ax.set_yticklabels(["25", "50", "75", "100"], color="grey", size=8)
@@ -76,11 +74,9 @@ def create_pr_radar_chart(labels, pr_scores):
     ax.plot(angles, plot_scores, color='#4F81BD', linewidth=2, linestyle='solid', label='個人優勢')
     ax.fill(angles, plot_scores, color='#4F81BD', alpha=0.35)
     
-    # 【關鍵修正】把圖例移到正下方，避免圖片變成長方形導致擠壓變形
     plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), fontsize=9, ncol=2)
     
     img_io = io.BytesIO()
-    # 提高 DPI 讓印出來更清楚
     plt.savefig(img_io, format='png', bbox_inches='tight', transparent=True, dpi=150)
     plt.close(fig)
     img_io.seek(0)
@@ -137,10 +133,9 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         pr_scores = [row[f'{s}_PR'] for s in radar_subs]
         chart_img = create_pr_radar_chart(radar_subs, pr_scores)
         
-        # 【關鍵修正】加上 preserveAspectRatio=True，保證不管圖片多大，貼上去絕對是完美的正圓形
         c.drawImage(ImageReader(chart_img), width - 360, height - 450, width=320, height=320, preserveAspectRatio=True, mask='auto')
         
-        # 導師的話
+        # --- 導師的話 (精準斷行排版) ---
         msg_y = height - 480
         c.setFont(current_font, 12)
         c.drawString(60, msg_y, "【導師勉勵】")
@@ -155,12 +150,14 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
             c.drawString(65, msg_y, line)
             msg_y -= 18
 
-        # 反省區
-        box_y = height - 630 
+        # --- 反省區 (絕對座標，徹底解決重疊問題) ---
+        # 標題固定在 height - 650
         c.setFont(current_font, 12)
-        c.drawString(60, box_y + 125, "【自我反省與下階段目標】") 
+        c.drawString(60, height - 650, "【自我反省與下階段目標】") 
+        
+        # 框框固定畫在 height - 780 (框框高度115，頂部為 height-665)
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
-        c.roundRect(60, box_y, width - 120, 115, 8, stroke=1, fill=0)
+        c.roundRect(60, height - 780, width - 120, 115, 8, stroke=1, fill=0)
         
         c.showPage()
     c.save()
