@@ -59,23 +59,29 @@ def create_pr_radar_chart(labels, pr_scores):
     plot_scores = list(pr_scores) + [pr_scores[0]]
     angles = angles + [angles[0]]
     
-    fig, ax = plt.subplots(figsize=(4.5, 4.5), subplot_kw=dict(polar=True))
+    # 加大畫布，確保有足夠空間
+    fig, ax = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     
     display_labels = [f"{label}\n(PR)" for label in labels]
     ax.set_thetagrids(np.degrees(angles[:-1]), display_labels, fontsize=10)
+    
+    # 嚴格設定半徑範圍為 0 到 100
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
-    ax.set_yticklabels(["25", "50", "75", "99"], color="grey", size=8)
+    ax.set_yticklabels(["25", "50", "75", "100"], color="grey", size=8)
     
     ax.plot(angles, [50]*len(angles), color='#C0504D', linewidth=1.5, linestyle='--', label='PR 50 (中位數)')
     ax.plot(angles, plot_scores, color='#4F81BD', linewidth=2, linestyle='solid', label='個人優勢')
     ax.fill(angles, plot_scores, color='#4F81BD', alpha=0.35)
-    plt.legend(loc='upper right', bbox_to_anchor=(1.35, 1.15), fontsize=9)
+    
+    # 【關鍵修正】把圖例移到正下方，避免圖片變成長方形導致擠壓變形
+    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), fontsize=9, ncol=2)
     
     img_io = io.BytesIO()
-    plt.savefig(img_io, format='png', bbox_inches='tight', transparent=True)
+    # 提高 DPI 讓印出來更清楚
+    plt.savefig(img_io, format='png', bbox_inches='tight', transparent=True, dpi=150)
     plt.close(fig)
     img_io.seek(0)
     return img_io
@@ -130,15 +136,16 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         radar_subs = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民'] if has_7_subjects else ['國文', '英文', '數學', '自然', '社會']
         pr_scores = [row[f'{s}_PR'] for s in radar_subs]
         chart_img = create_pr_radar_chart(radar_subs, pr_scores)
-        c.drawImage(ImageReader(chart_img), width - 350, height - 440, width=320, height=320, mask='auto')
         
-        # 導師的話 (套用選擇的句子，自動斷行處理)
+        # 【關鍵修正】加上 preserveAspectRatio=True，保證不管圖片多大，貼上去絕對是完美的正圓形
+        c.drawImage(ImageReader(chart_img), width - 360, height - 450, width=320, height=320, preserveAspectRatio=True, mask='auto')
+        
+        # 導師的話
         msg_y = height - 480
         c.setFont(current_font, 12)
         c.drawString(60, msg_y, "【導師勉勵】")
         c.setFont(current_font, 10)
         
-        # 簡單的斷行邏輯 (每 35 個字元換行)
         msg_lines = []
         for i in range(0, len(selected_quote), 35):
             msg_lines.append(selected_quote[i:i+35])
@@ -148,7 +155,7 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
             c.drawString(65, msg_y, line)
             msg_y -= 18
 
-        # 反省區 (固定高度，確保不與上方文字重疊)
+        # 反省區
         box_y = height - 630 
         c.setFont(current_font, 12)
         c.drawString(60, box_y + 125, "【自我反省與下階段目標】") 
@@ -160,8 +167,6 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
     pdf_io.seek(0)
     return pdf_io
 
-
-# 預設的 10 種鼓勵語清單
 quotes_list = [
     "每次的考試都是檢視自己學習歷程的絕佳機會。無論結果如何，這都只是學習旅程中的一個標記。請保持求知若渴的心，繼續穩紮穩打，未來的你一定會感謝現在努力的自己！",
     "分數只是數字，更重要的是你從中學到了什麼。找出自己的弱點並勇敢面對它，就是進步的開始。老師相信你的潛力無限，下個階段我們一起設定新目標，繼續前進！",
@@ -174,7 +179,6 @@ quotes_list = [
     "你的進步老師都看在眼裡！這份成績單是你努力的證明，請為自己感到驕傲。但別忘了，這只是一個新的起點，繼續保持渴望學習的心，去探索更廣闊的知識領域吧！",
     "不要和別人比，只要今天的你比昨天的你進步，這就是最大的成功。每個人都有自己的學習步調，找到適合自己的方法最重要。對自己有信心，你絕對做得到！"
 ]
-
 
 # ==========================================
 # 網頁 UI 介面設定
@@ -202,7 +206,6 @@ st.markdown("---")
 
 sheet_url = st.text_input("🔗 請在此貼上「您自己的成績試算表」網址：", placeholder="https://docs.google.com/spreadsheets/d/...")
 
-# 讓老師選擇導師勉勵語
 st.markdown("### 💬 選擇要印在成績單上的導師勉勵")
 selected_quote = st.selectbox("請選擇一段符合班級現狀的鼓勵語：", quotes_list)
 
@@ -268,7 +271,6 @@ if sheet_url:
             
             if st.button("🚀 產生全班 PDF 成績單", type="primary"):
                 with st.spinner("完美排版中，請稍候..."):
-                    # 將選定的句子傳入函數
                     pdf_data = generate_pdf_report(df_students, stats_dict, radar_subjects, has_7_subjects, selected_quote)
                     
                 st.balloons()
