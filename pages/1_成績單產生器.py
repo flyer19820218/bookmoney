@@ -155,7 +155,7 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         # --- 反省區 (絕對座標，鎖死在完美位置) ---
         # 剛剛的 -615 太高噴到中間去了。之前的 -780 是剛好在下面。
         # 您說往上調「一行」，一行大約是 20 單位，所以我把它鎖死在 height - 760
-        box_bottom_y = height - 760 
+        box_bottom_y = height - 660 
         
         c.setFont(current_font, 12)
         # 標題固定在框框上方 125 的位置
