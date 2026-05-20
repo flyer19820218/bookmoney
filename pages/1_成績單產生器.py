@@ -1,6 +1,3 @@
-# ==========================================
-# === 區塊 1: 模組與初始化 ===
-# ==========================================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -71,6 +68,7 @@ def create_pr_radar_chart(labels, pr_scores):
     
     display_labels = [f"{label}\n(PR)" for label in labels]
     ax.set_thetagrids(np.degrees(angles[:-1]), display_labels, fontsize=10)
+    
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
     ax.set_yticklabels(["25", "50", "75", "100"], color="grey", size=8)
@@ -112,6 +110,7 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         y_pos = height - 165
         c.setFont(current_font, 11)
         
+        # 根據 UI 選擇動態切換 PDF 顯示科目
         if has_7_subjects:
             display_subs = ['國文', '英文', '數學', '自然', '社會', '歷史', '地理', '公民']
         else:
@@ -135,7 +134,7 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
         c.drawString(65, y_pos - 25, f"班級名次 :  第 {int(row['名次'])} 名")
         c.drawString(65, y_pos - 50, f"總分 PR 值 :  {row['總PR']:.2f}")
 
-        # 雷達圖
+        # 根據 UI 選擇動態切換雷達圖軸線數量
         radar_subs = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民'] if has_7_subjects else ['國文', '英文', '數學', '自然', '社會']
         pr_scores = [row[f'{s}_PR'] for s in radar_subs]
         chart_img = create_pr_radar_chart(radar_subs, pr_scores)
@@ -158,11 +157,12 @@ def generate_pdf_report(df_students, df_stats, subjects, has_7_subjects, selecte
             c.drawString(65, msg_y, line)
             msg_y -= 20 
 
-        # --- 反省區 (往下平移 40 像素) ---
+        # --- 反省區 (絕對座標鎖死) ---
+        box_bottom_y = height - 760 
         c.setFont(current_font, 12)
-        c.drawString(60, height - 620, "【自我反省與下階段目標】") 
+        c.drawString(60, box_bottom_y + 125, "【自我反省與下階段目標】") 
         c.setStrokeColorRGB(0.5, 0.5, 0.5)
-        c.roundRect(60, height - 750, width - 120, 115, 8, stroke=1, fill=0)
+        c.roundRect(60, box_bottom_y, width - 120, 115, 8, stroke=1, fill=0)
         
         c.showPage()
     c.save()
@@ -177,10 +177,10 @@ quotes_list = [
     "每次的考試都是檢視自己學習歷程的絕佳機會。無論結果如何，這都只是學習旅程中的一個標記。請保持求知若渴的心，繼續穩紮穩打，未來的你一定會感謝現在努力的自己！",
     "分數只是數字，更重要的是你從中學到了什麼。找出自己的弱點並勇敢面對它，就是進步的開始。老師相信你的潛力無限，下個階段我們一起設定新目標，繼續前進！",
     "「不怕慢，只怕站。」學習就像跑馬拉松，重點不是瞬間的爆發力，而是持續不懈的毅力。調整好步伐，堅持每天進步一點點，最後的勝利一定屬於你。",
-    "看到你在這段期間的努力，老師感到非常欣慰。也許成果還沒有完全展現，但所有的汗水都不會白流。請繼續保持這份熱忱與堅持，閃耀的時刻就在不遠處等著你！",
+    "看到你在這段期間的努力，老師感到 Microsoft JhengHei 非常欣慰。也許成果還沒有完全展現，但所有的汗水都不會白流。請繼續保持這份熱忱與堅持，閃耀的時刻就在不遠處等著你！",
     "學習的路上難免會遇到挫折，但挫折是為了讓你變得更堅強。不要因為一次的失利而氣餒，把錯誤當作墊腳石，勇敢地跨越它，相信下一次的你一定會更加出色。",
     "優秀是一種習慣，而你正在慢慢培養這種習慣。繼續保持你良好的學習態度，不要害怕發問，不要害怕挑戰困難，你的努力終將為你帶來豐碩的果實。繼續加油！",
-    "每一次的努力都是在為未來打地基。現在的辛苦，是為了讓未來的自己有更多的選擇權。相信自己的能力，勇敢迎接接下來的每一個挑戰，老師會一直在背後支持你。",
+    "每一次的努力都是在為未來打地基。現在的辛苦，是為了讓未來的自己有更多的選擇權。相信自己的能力，勇敢迎接接下來的每一個挑戰，老師會一直在背會支持你。",
     "成功沒有捷徑，只有一步一腳印的踏實。請認真檢視這次的成績，找到需要補強的地方，並且確實執行你的讀書計畫。只要你願意付出，一定能看到改變的發生。",
     "你的進步老師都看在眼裡！這份成績單是你努力的證明，請為自己感到驕傲。但別忘了，這只是一個新的起點，繼續保持渴望學習的心，去探索更廣闊的知識領域吧！",
     "不要和別人比，只要今天的你比昨天的你進步，這就是最大的成功。每個人都有自己的學習步調，找到適合自己的方法最重要。對自己有信心，你絕對做得到！"
@@ -206,6 +206,16 @@ st.info("""
 確認成績無誤後，請將您的試算表共用權限設為「**知道連結的人均可檢視**」。然後將網址複製，貼到下方的框框中，點擊產出按鈕即可！
 """)
 st.markdown("---")
+
+# === 【核心修正】在畫面上加入學制手動選擇按鈕，徹底解決偵測不準的問題 ===
+st.markdown("### 📊 選擇學生年級與科目規格")
+grade_option = st.radio(
+    "請選擇您目前要處理的年級學制：",
+    ["一年級 (五科版：國、英、數、自、社)", "二/三年級 (七科版：包含歷史、地理、公民)"],
+    index=1
+)
+has_7_subjects = (grade_option == "二/三年級 (七科版：包含歷史、地理、公民)")
+# =========================================================================
 
 sheet_url = st.text_input("🔗 請在此貼上「您自己的成績試算表」網址：", placeholder="https://docs.google.com/spreadsheets/d/...")
 
@@ -253,8 +263,7 @@ if sheet_url:
                     if col in df_students.columns:
                         df_students[col] = pd.to_numeric(df_students[col], errors='coerce').fillna(0)
                 
-                has_7_subjects = all(c in df_students.columns for c in ['歷史', '地理', '公民'])
-                
+                # 【核心變動】雷達圖與計算科目改由畫面上的按鈕控制
                 if has_7_subjects:
                     radar_subjects = ['國文', '英文', '數學', '自然', '歷史', '地理', '公民']
                 else:
