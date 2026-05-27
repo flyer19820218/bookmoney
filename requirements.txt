@@ -2,5 +2,6 @@ streamlit
 pandas
 openpyxl
 requests
-matplotlib
 reportlab
+matplotlib
+numpy
