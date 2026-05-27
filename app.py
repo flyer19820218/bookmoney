@@ -6,7 +6,6 @@ from openpyxl.worksheet.page import PageMargins
 import re
 import io
 import requests
-from fpdf import FPDF  # 新增：用來產生 PDF 的套件
 
 # ==========================================
 # 0. 網頁基本設定
