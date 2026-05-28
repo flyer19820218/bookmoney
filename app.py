@@ -342,41 +342,48 @@ with tab2:
                 return col
         return None
         
-    # 🌟 內部工具：智慧解析「並排式」分組名單 (解決合併儲存格問題)
+    # 🌟 內部工具：智慧解析「並排式」分組名單 (破解合併儲存格)
     def parse_horizontal_group_file(uploaded_file):
         if uploaded_file.name.endswith('.csv'):
             df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
         else:
             df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
             
+        # 1. 尋找「姓名」所在的列
         header_idx = -1
         for idx, row in df_grp.iterrows():
-            if any("姓名" in str(v) for v in row.values):
+            if any(isinstance(v, str) and "姓名" in v for v in row.values):
                 header_idx = idx
                 break
                 
         mapping = {}
         if header_idx != -1:
-            group_row_idx = max(0, header_idx - 1)
+            col_to_group = {}
             current_group = "1"
             
-            # 從左掃到右，記住最新的分組名稱 (解決 Excel 合併儲存格通常只把值放在第一欄的問題)
+            # 2. 水平記憶掃描：從左到右掃描姓名上方的儲存格，記住最新的分組代號
             for col_idx in range(df_grp.shape[1]):
-                val_above = str(df_grp.iloc[group_row_idx, col_idx]).strip()
-                if val_above and val_above != "nan":
-                    # 萃取英文大寫字母 (例如從 "801英語文A" 抓出 "A")
-                    match = re.search(r'[A-Za-z]', val_above)
-                    if match:
-                        current_group = match.group(0).upper()
-                    else:
-                        current_group = val_above
+                for r in range(0, header_idx):
+                    val = str(df_grp.iloc[r, col_idx]).strip()
+                    if val and val != "nan":
+                        # 萃取英文大寫字母 (例如從 "801英語文A" 抓出 "A")
+                        match = re.search(r'[A-Za-z]', val)
+                        if match:
+                            current_group = match.group(0).upper()
+                        elif len(val) <= 2: # 如果沒有英文，可能直接寫 1 或 2
+                            current_group = val
+                # 把這個欄位綁定到目前記憶的群組
+                col_to_group[col_idx] = current_group
 
-                # 若此欄是「姓名」欄，就把底下的學生都貼上目前記住的標籤
+            # 3. 讀取每個姓名欄位底下的學生，並貼上該欄位對應的群組標籤
+            for col_idx in range(df_grp.shape[1]):
                 if "姓名" in str(df_grp.iloc[header_idx, col_idx]):
+                    group_for_this_col = col_to_group[col_idx]
                     names = df_grp.iloc[header_idx+1:, col_idx].astype(str).str.strip()
                     for name in names:
-                        if name and name != "nan":
-                            mapping[name] = current_group
+                        clean_name = name.replace(" ", "") # 清除姓名中的空白
+                        if clean_name and clean_name != "nan":
+                            mapping[clean_name] = group_for_this_col
         return mapping
 
     def generate_reportlab_pdf(df_students, df_books_clean):
@@ -402,8 +409,10 @@ with tab2:
                 elif b['subj'] == "數" and s_math in b['code']: is_match = True
                 elif b['subj'] == "自" and s_sci in b['code']: is_match = True
                 
+                # 資優生免購邏輯
                 if s_gifted == "語資" and b['subj'] in ["國", "英"]: is_match = False
                 if s_gifted == "數資" and b['subj'] in ["數", "自"]: is_match = False
+                if "語資" in s_gifted and "數資" in s_gifted and b['subj'] in ["國", "英", "數", "自"]: is_match = False
                 
                 if is_match:
                     personal_list.append((b['name'], b['price']))
@@ -413,7 +422,7 @@ with tab2:
             c.drawCentredString(width/2, height - 60, "學 期 各 項 費 用 通 知 單")
             c.setFont(pdf_font, 12)
             c.drawString(60, height - 100, f"座號：{seat}        姓名：{name}")
-            c.drawRightString(width - 60, height - 100, f"狀態：英({s_eng}) 數({s_math})")
+            c.drawRightString(width - 60, height - 100, f"狀態：英({s_eng}) 數({s_math}) 資優({s_gifted if s_gifted != '1' else '無'})")
             c.line(60, height - 110, width - 60, height - 110)
             c.setFont(pdf_font, 11)
             c.drawString(70, height - 135, "項目 / 書籍名稱")
@@ -452,13 +461,12 @@ with tab2:
     # 🌟 執行區塊
     if file_class and file_books:
         try:
-            # 1. 智慧讀取原班名單 (自動跳過最上方「八年一班」這類大標題)
+            # 1. 智慧讀取原班名單
             df_temp = pd.read_excel(file_class, header=None).fillna("")
             header_idx = 0
             for idx, row in df_temp.iterrows():
                 if any("姓名" in str(v) for v in row.values):
-                    header_idx = idx
-                    break
+                    header_idx = idx ; break
             df_s = pd.read_excel(file_class, skiprows=header_idx).fillna("")
             
             c_seat = find_column(df_s, ["座號", "號碼", "序號"], "座號")
@@ -469,19 +477,46 @@ with tab2:
             for col in ["英組", "數組", "自組", "資優類別"]:
                 if col not in df_s.columns: df_s[col] = "1"
 
-            # 🌟 智慧整合「並排式」分組名單 (直接透過姓名跨表比對)
+            # 🌟 智慧整合分組名單 ＆ 資優生判定邏輯
             if file_eng:
                 eng_map = parse_horizontal_group_file(file_eng)
-                df_s["英組"] = df_s["姓名"].map(eng_map).fillna("1")
+            else:
+                eng_map = {}
                 
             if file_math:
                 math_map = parse_horizontal_group_file(file_math)
-                df_s["數組"] = df_s["姓名"].map(math_map).fillna("1")
+            else:
+                math_map = {}
 
-            # 顯示全班完整名單 (已拔除 .head() 限制)
-            with st.expander("👀 步驟 1.5：核對學生名條 (點我展開)", expanded=True):
-                st.write("這是系統抓到的全班學生，請全面確認「座號」、「姓名」與「抓到的分組」是否正確：")
-                st.dataframe(df_s[["座號", "姓名", "英組", "數組"]])
+            # 進行姓名精準對接
+            for idx, row in df_s.iterrows():
+                # 去除姓名空白，確保對接完美
+                clean_name = str(row["姓名"]).replace(" ", "").strip()
+                
+                # 英文組判斷
+                if file_eng:
+                    if clean_name in eng_map:
+                        df_s.at[idx, "英組"] = eng_map[clean_name]
+                    else:
+                        df_s.at[idx, "資優類別"] = "語資"
+                        df_s.at[idx, "英組"] = "免"
+                
+                # 數學組判斷
+                if file_math:
+                    if clean_name in math_map:
+                        df_s.at[idx, "數組"] = math_map[clean_name]
+                    else:
+                        current_gifted = str(df_s.at[idx, "資優類別"])
+                        if current_gifted == "1" or current_gifted == "":
+                            df_s.at[idx, "資優類別"] = "數資"
+                        elif current_gifted == "語資":
+                            df_s.at[idx, "資優類別"] = "語資/數資"
+                        df_s.at[idx, "數組"] = "免"
+
+            # 顯示全班完整名單
+            with st.expander("👀 步驟 1.5：核對學生名條與資優生判定 (點我展開)", expanded=True):
+                st.write("請確認「分組」是否成功，若找不到分組，系統會自動將該生標示為「語資/數資」：")
+                st.dataframe(df_s[["座號", "姓名", "英組", "數組", "資優類別"]])
 
             # 2. 智慧讀取書商報價單
             header_skip = 0
@@ -512,7 +547,6 @@ with tab2:
                 file_books.seek(0)
                 df_b = pd.read_excel(file_books, skiprows=header_skip).fillna("")
 
-            # 統一書商欄位
             b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
             b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
             b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
@@ -526,7 +560,6 @@ with tab2:
             })
             df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
-            # 顯示完整書目清單 (已拔除 .head(10) 限制)
             with st.expander("👀 步驟 1.8：核對書商書籍清單 (點我展開)"):
                 st.write("這是系統抓到的完整書目，請確認「單價」與「分組代號(附記)」是否正確：")
                 st.dataframe(df_books_clean)
@@ -538,7 +571,7 @@ with tab2:
                 with st.spinner("正在進行交叉對帳與排版中..."):
                     pdf_result = generate_reportlab_pdf(df_s, df_books_clean)
                     st.balloons()
-                    st.download_button(label="📥 下載全班 A4 PDF 繳費通知單", data=pdf_result, file_name="全班購書單_核對版.pdf", mime="application/pdf")
+                    st.download_button(label="📥 下載全班 A4 PDF 繳費通知單", data=pdf_result, file_name="全班購書單_核對完美版.pdf", mime="application/pdf")
         
         except Exception as e:
             st.error(f"系統讀取發生錯誤：{e}")
