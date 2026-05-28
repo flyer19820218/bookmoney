@@ -319,7 +319,7 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：完全體 ─ 智慧交叉比對系統 (多書商 CSV 穩定版 + 人數逆推引擎)
+# 🌟 分頁 2：終極完全體 ─ 智慧交叉比對系統 (多書商 CSV 穩定版 + 偵探逆推引擎)
 # =====================================================================
 with tab2:
     st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (多書商 CSV 穩定版)")
@@ -358,23 +358,37 @@ with tab2:
         if any(k in name for k in ["國", "文", "閱讀"]): return "國"
         return "其他"
 
-    # 🌟 修正完成的標準化分組代號函數 (徹底修復 NameError 臭蟲)
-    def standardize_group_code(val):
+    # 🌟 徹底修復崩潰問題！精準相容「科別+雙位數班級+字母」的黃金函數
+    def standardize_group_code(val, subj_hint=""):
         val = str(val).strip()
         if val in ["1", "全", "", "nan", "None", "無"]: return "1"
         
-        # 處理包含文字與班級數字的複雜代號 (例如 英801A -> 英1A, 812B -> 12B)
-        match_full = re.search(r'([^\d]*)(\d+).*?([A-Za-z])', val)
+        # 1. 檢查是否包含：中文科別 + 班級數字 + 英文字母 (例如 "英801A", "數12B")
+        match_full = re.search(r'([\u4e00-\u9fa5]*)\s*(\d+)\s*([A-Za-z])', val)
         if match_full:
-            prefix = match_full.group(1)
+            prefix = match_full.group(1).strip()
             cls_num = int(match_full.group(2))
-            if cls_num >= 100: cls_num = cls_num % 100 
-            return f"{prefix}{cls_num}{match_full.group(3).upper()}"
+            if cls_num >= 100: cls_num = cls_num % 100 # 支援 812 -> 12 班
+            letter = match_full.group(3).upper()
             
-        # 處理單純只有字母的模糊代號 (例如 A -> A)
+            if not prefix and subj_hint in ["英", "數", "自"]: prefix = subj_hint
+            return f"{prefix}{cls_num}{letter}"
+            
+        # 2. 檢查是否只有：班級數字 + 英文字母 (例如 "801A", "12B")
+        match_num_alpha = re.search(r'(\d+)\s*([A-Za-z])', val)
+        if match_num_alpha:
+            cls_num = int(match_num_alpha.group(1))
+            if cls_num >= 100: cls_num = cls_num % 100
+            letter = match_num_alpha.group(2).upper()
+            prefix = subj_hint if subj_hint in ["英", "數", "自"] else ""
+            return f"{prefix}{cls_num}{letter}"
+            
+        # 3. 檢查是否只有單純字母 (例如 "A", "B"，交給逆推引擎校正)
         match_alpha = re.search(r'[A-Za-z]', val)
         if match_alpha: 
-            return match_alpha.group(0).upper()
+            letter = match_alpha.group(0).upper()
+            prefix = subj_hint if subj_hint in ["英", "數", "自"] else ""
+            return f"{prefix}{letter}" if prefix else letter
         
         return val
 
@@ -383,18 +397,22 @@ with tab2:
         b_code_str = str(b_code).strip().upper()
         s_grp_upper = str(s_grp).strip().upper()
         
-        s_match = re.search(r'(\d*)([A-Z]+)', s_grp_upper)
-        b_match = re.search(r'(\d*)([A-Z]+)', b_code_str)
+        if s_grp_upper == b_code_str: return True
+        
+        s_match = re.search(r'([\u4e00-\u9fa5]*)\s*(\d*)\s*([A-Z])', s_grp_upper)
+        b_match = re.search(r'([\u4e00-\u9fa5]*)\s*(\d*)\s*([A-Z])', b_code_str)
         if s_match and b_match:
-            s_num, s_letter = s_match.groups()
-            b_num, b_letter = b_match.groups()
+            s_prefix, s_num, s_letter = s_match.groups()
+            b_prefix, b_num, b_letter = b_match.groups()
+            if s_letter != b_letter: return False
             if b_num and s_num and b_num != s_num: return False
-            if b_letter == s_letter: return True
+            if b_prefix and s_prefix and b_prefix != s_prefix: return False
+            return True
             
         pattern = r'(?<!\d)' + re.escape(s_grp_upper)
         return bool(re.search(pattern, b_code_str))
 
-    def parse_horizontal_group_file(uploaded_file):
+    def parse_horizontal_group_file(uploaded_file, subj_hint=""):
         if uploaded_file.name.endswith('.csv'): df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
         else: df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
         header_idx = -1
@@ -408,7 +426,7 @@ with tab2:
                 for r in range(0, header_idx):
                     val = str(df_grp.iloc[r, col_idx]).strip()
                     if val and val != "nan":
-                        col_to_group[col_idx] = standardize_group_code(val)
+                        col_to_group[col_idx] = standardize_group_code(val, subj_hint)
             for col_idx in range(df_grp.shape[1]):
                 if "姓名" in str(df_grp.iloc[header_idx, col_idx]):
                     group_for_this_col = col_to_group.get(col_idx, "無")
@@ -419,6 +437,7 @@ with tab2:
                             mapping[clean_name] = group_for_this_col
         return mapping
 
+    # 🌟 核心進化：神級「人數逆推」偵探引擎
     def psychic_correction(df_b, df_s):
         group_stats = []
         for col, s_name in [('英組', '英'), ('數組', '數'), ('自組', '自')]:
@@ -441,21 +460,21 @@ with tab2:
                 score = 0
                 s_grp = stat['grp']
                 
+                # A. 人數數量完全命中 (權重最高 +10分)
                 if b_qty > 0 and b_qty == stat['count']: score += 10
                     
-                b_alpha_match = re.search(r'[A-Z]+', b_code)
-                s_alpha_match = re.search(r'[A-Z]+', s_grp)
-                b_alpha = b_alpha_match.group(0) if b_alpha_match else ""
-                s_alpha = s_alpha_match.group(0) if s_alpha_match else ""
-                if b_alpha and b_alpha == s_alpha: score += 5
+                b_match = re.search(r'([\u4e00-\u9fa5]*)\s*(\d*)\s*([A-Z])', b_code)
+                s_match = re.search(r'([\u4e00-\u9fa5]*)\s*(\d*)\s*([A-Z])', s_grp)
+                if b_match and s_match:
+                    b_prefix, b_num, b_letter = b_match.groups()
+                    s_prefix, s_num, s_letter = s_match.groups()
                     
-                b_num_match = re.search(r'\d+', b_code)
-                s_num_match = re.search(r'\d+', s_grp)
-                b_num = b_num_match.group(0) if b_num_match else ""
-                s_num = s_num_match.group(0) if s_num_match else ""
-                if b_num and s_num and b_num == s_num: score += 5
-                elif b_num and s_num and b_num != s_num: score -= 10
-                    
+                    if b_letter == s_letter: score += 5
+                    if b_num and s_num and b_num == s_num: score += 5
+                    elif b_num and s_num and b_num != s_num: score -= 10
+                    if b_prefix and s_prefix and b_prefix == s_prefix: score += 5
+                    elif b_prefix and s_prefix and b_prefix != s_prefix: score -= 10
+                
                 if stat['subj'] in b_name or stat['subj'] == row['subj']: score += 3
                     
                 if score > best_score:
@@ -502,7 +521,7 @@ with tab2:
                     total_amount += b['price']
 
             c.setFont(pdf_font, 24)
-            c.drawCentredString(width/2, height - 80, "學 期 各 項 費 用 通 Notification 單")
+            c.drawCentredString(width/2, height - 80, "學 期 各 項 費 用 通 知 單")
             s_eng_display = s_eng if s_eng not in ["1", "無", ""] else "無"
             s_math_display = s_math if s_math not in ["1", "無", ""] else "無"
             s_gifted_display = s_gifted if s_gifted not in ["1", "無", ""] else "無"
@@ -681,8 +700,9 @@ with tab2:
             for col in ["英組", "數組", "自組", "資優類別"]:
                 if col not in df_s.columns: df_s[col] = "無"
 
-            eng_map = parse_horizontal_group_file(file_eng) if file_eng else {}
-            math_map = parse_horizontal_group_file(file_math) if file_math else {}
+            # 🌟 智慧灌入科目提示：英文分組名單就給「英」，數學就給「數」
+            eng_map = parse_horizontal_group_file(file_eng, "英") if file_eng else {}
+            math_map = parse_horizontal_group_file(file_math, "數") if file_math else {}
 
             for idx, row in df_s.iterrows():
                 clean_name = str(row["姓名"]).replace(" ", "").strip()
@@ -764,12 +784,15 @@ with tab2:
                     price_val = df_b['parsed_price'].iloc[i]
                     if pd.notna(price_val) and price_val > 0: 
                         raw_name = str(df_b[b_col_name].iloc[i])
-                        raw_code = standardize_group_code(df_b[b_col_code].iloc[i]) if b_col_code else "1"
-                        
                         raw_qty = df_b[b_col_qty].iloc[i] if b_col_qty else 0
                         qty_val = pd.to_numeric(raw_qty, errors='coerce')
                         qty_val = int(qty_val) if pd.notna(qty_val) else 0
                         
+                        # 讓系統先盲猜科目，提供給代號標準化當成提示
+                        pre_subj = str(df_b[b_col_subj].iloc[i]) if b_col_subj else guess_subject(raw_name)
+                        
+                        # 將提示餵入標準化，確保 801A + 英文暗示 = 英1A 完美產出
+                        raw_code = standardize_group_code(df_b[b_col_code].iloc[i], pre_subj) if b_col_code else "1"
                         subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else guess_subject(raw_name, raw_code)
 
                         extracted_books.append({
@@ -787,7 +810,7 @@ with tab2:
                 
             df_books_clean = pd.concat(all_books_clean_list, ignore_index=True) if all_books_clean_list else pd.DataFrame()
 
-            # 🌟 核心修正：先執行人數與科目逆推，再進入後續交叉扣合
+            # 🌟 啟動：人數逆推偵探引擎 (校正完成後，自動把 A 校正為 英1A，並把科目從國文翻轉回英文！)
             if not df_books_clean.empty:
                 df_books_clean = psychic_correction(df_books_clean, df_s)
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
@@ -797,7 +820,7 @@ with tab2:
                 if not df_books_clean.empty:
                     st.dataframe(df_books_clean)
                 else:
-                    st.warning("⚠️ 尚未成功讀取任何書目，請確認上傳的 CSV 或 Excel 格式。")
+                    st.warning("⚠️ 尚未成功讀取 any 書目，請確認上傳的 CSV 或 Excel 格式。")
 
             st.divider()
             st.markdown("#### 🚀 第二步：執行交叉智慧扣合")
