@@ -319,7 +319,7 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：全新升級 ─ 智慧交叉比對系統 (產出一人一頁 PDF + 總表 Excel)
+# 🌟 分頁 2：全新升級 ─ 智慧交叉比對系統 (產出一人一頁自動縮放 PDF)
 # =====================================================================
 with tab2:
     st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (產出完美 PDF)")
@@ -393,7 +393,7 @@ with tab2:
                             mapping[clean_name] = group_for_this_col
         return mapping
 
-    # 🌟 核心引擎：一書一列 完美 A4 PDF 產生器
+    # 🌟 核心引擎：具備「自動縮放字體」功能的完美 A4 PDF 產生器
     def generate_smart_pdf(df_students, df_books_clean):
         pdf_io = io.BytesIO()
         c = canvas.Canvas(pdf_io, pagesize=A4)
@@ -423,7 +423,8 @@ with tab2:
                 if "語資" in s_gifted and "數資" in s_gifted and b['subj'] in ["國", "英", "數", "自"]: is_match = False
                 
                 if is_match:
-                    personal_list.append((b['name'], b['subj'], b['price']))
+                    # 移除了科目的儲存，只保留書名與價格
+                    personal_list.append((b['name'], b['price']))
                     total_amount += b['price']
 
             # --- 開始繪製 PDF ---
@@ -438,33 +439,46 @@ with tab2:
             c.setLineWidth(2)
             c.line(60, height - 145, width - 60, height - 145)
             
-            # 表頭
+            # 乾淨的雙欄位表頭
             c.setFont(pdf_font, 12)
             c.drawString(70, height - 170, "書籍 / 項目名稱")
-            c.drawString(380, height - 170, "科目")
             c.drawRightString(width - 70, height - 170, "金額 (元)")
             
             c.setLineWidth(0.5)
             c.line(60, height - 180, width - 60, height - 180)
             
-            # 填寫每一列書目 (一書一列，超清晰)
-            y_pos = height - 210
-            c.setFont(pdf_font, 12)
-            if not personal_list:
-                c.drawString(70, y_pos, "（本學期無特殊選購書籍，免繳費）")
-                y_pos -= 30
-            else:
-                for b_name, b_subj, price in personal_list:
-                    if y_pos < 180: # 防溢出
-                        c.drawString(70, y_pos, "...項目過多未完，請洽導師...")
-                        break
-                    c.drawString(70, y_pos, b_name)
-                    c.drawString(380, y_pos, b_subj)
-                    c.drawRightString(width - 70, y_pos, f"$ {int(price)}")
-                    y_pos -= 28 # 每本書的行距
+            # 🌟 AI 自動縮放行距與字體系統 (Auto-Scaling)
+            start_y = height - 205
+            end_y = 170 # 保留給下方總計與簽章的安全距離
+            available_space = start_y - end_y
+            item_count = len(personal_list)
             
+            if item_count == 0:
+                c.setFont(pdf_font, 12)
+                c.drawString(70, start_y, "（本學期無特殊選購書籍，免繳費）")
+                y_pos = start_y - 25
+                line_height = 20
+            else:
+                default_line_height = 22 # 預設空格比之前小一點，看起來較緊湊
+                if item_count * default_line_height > available_space:
+                    # 如果書太多超過一頁，強行壓縮行距
+                    line_height = available_space / item_count
+                    # 字體等比例縮小，但設下限 9pt 避免家長看不到
+                    dynamic_font_size = max(9, int(line_height * 0.6)) 
+                else:
+                    line_height = default_line_height
+                    dynamic_font_size = 12
+                
+                c.setFont(pdf_font, dynamic_font_size)
+                y_pos = start_y
+                for b_name, price in personal_list:
+                    c.drawString(70, y_pos, b_name)
+                    c.drawRightString(width - 70, y_pos, f"$ {int(price)}")
+                    y_pos -= line_height
+            
+            # 總計區塊
             c.setLineWidth(1)
-            c.line(60, y_pos + 10, width - 60, y_pos + 10)
+            c.line(60, y_pos + (line_height * 0.6), width - 60, y_pos + (line_height * 0.6))
             
             c.setFont(pdf_font, 16)
             c.drawString(70, y_pos - 20, "應繳總計金額：")
@@ -673,7 +687,6 @@ with tab2:
 
             if st.button("🎯 確認無誤，開始產出檔案", type="primary"):
                 with st.spinner("正在進行交叉對帳與 PDF 排版中..."):
-                    # 將產出的結果存入記憶體中
                     st.session_state.pdf_output = generate_smart_pdf(df_s, df_books_clean)
                     st.session_state.excel_output = generate_excel_master_tab2(df_s, df_books_clean)
                     st.success("🎉 對帳與排版完成！請點擊下方按鈕下載（現在下載不會再跳回上一步囉！）")
@@ -684,7 +697,7 @@ with tab2:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.download_button(
-                        label="📥 下載【家長通知單】(A4 完美 PDF 版)", 
+                        label="📥 下載【家長通知單】(A4 自動縮放 PDF 版)", 
                         data=st.session_state.pdf_output, 
                         file_name="全班通知單_一人一頁.pdf", 
                         mime="application/pdf"
