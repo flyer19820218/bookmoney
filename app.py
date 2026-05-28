@@ -319,13 +319,13 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：終極穩定版 ─ 智慧交叉比對系統 (完美分組繼承 + 空白自訂收費)
+# 🌟 分頁 2：班級購書與費用對帳系統
 # =====================================================================
 with tab2:
-    st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (多書商 CSV 穩定版)")
-    st.markdown("直接上傳學校名單與**各家書商原始 CSV / Excel 檔**，自動產出 PDF 通知單與各書商對帳表。")
+    st.subheader("🖨️ 班級購書與費用對帳系統")
+    st.markdown("請上傳班級名單與書商 CSV / Excel 檔，系統將自動為您產出 PDF 通知單與對帳表。")
 
-    st.markdown("#### 📁 步驟 1.1：上傳學校名單與書商報價")
+    st.markdown("#### 📁 步驟一：上傳名單與報價單")
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -334,10 +334,10 @@ with tab2:
     with col_b:
         file_eng   = st.file_uploader("3. 英文分組名單 (可選)", type=["csv", "xlsx", "xls"])
         file_math  = st.file_uploader("4. 數學/自然分組名單 (可選)", type=["csv", "xlsx", "xls"])
-        st.caption("💡 提示：請將數/自分組名單傳至上方。系統若讀到 9 或 3 開頭的三年級名單，將自動連動數自同組！")
+        st.caption("💡 提示：若為三年級名單，系統將自動連動數/自為同組。")
 
-    st.markdown("#### ➕ 步驟 1.2：手動新增自訂收費項目 (選填)")
-    st.write("若不需新增請留空即可！填寫「分組代號」系統會自動結算人數。全班收取請填 `1`。")
+    st.markdown("#### ➕ 步驟二：新增其他收費 (選填)")
+    st.write("若無其他收費請留空。填寫「分組代號」系統會自動結算人數 (全班收取請填 `1`)。")
     
     if 'custom_fees' not in st.session_state:
         st.session_state.custom_fees = pd.DataFrame([
@@ -390,7 +390,6 @@ with tab2:
         if match_alpha: return match_alpha.group(0).upper()
         return val
 
-    # 🌟 一字不漏還原：完美處理 Excel 合併儲存格的繼承邏輯
     def parse_horizontal_group_file(uploaded_file):
         if uploaded_file.name.endswith('.csv'): df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
         else: df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
@@ -401,7 +400,6 @@ with tab2:
         mapping = {}
         if header_idx != -1:
             col_to_group = {}
-            current_group = "無"
             current_grade = 0
             for col_idx in range(df_grp.shape[1]):
                 for r in range(0, header_idx):
@@ -412,16 +410,14 @@ with tab2:
                             cls_num = int(match_num_alpha.group(1))
                             current_grade = cls_num // 100 
                             if cls_num >= 100: cls_num = cls_num % 100 
-                            current_group = f"{cls_num}{match_num_alpha.group(2).upper()}"
+                            col_to_group[col_idx] = (f"{cls_num}{match_num_alpha.group(2).upper()}", current_grade)
                         else:
                             match_alpha = re.search(r'[A-Za-z]', val)
-                            if match_alpha: current_group = match_alpha.group(0).upper()
-                            elif len(val) <= 4: current_group = val
-                col_to_group[col_idx] = (current_group, current_grade)
-
+                            if match_alpha: col_to_group[col_idx] = (match_alpha.group(0).upper(), 0)
+                            else: col_to_group[col_idx] = ("無", 0)
             for col_idx in range(df_grp.shape[1]):
                 if "姓名" in str(df_grp.iloc[header_idx, col_idx]):
-                    group_info = col_to_group[col_idx]
+                    group_info = col_to_group.get(col_idx, ("無", 0))
                     names = df_grp.iloc[header_idx+1:, col_idx].astype(str).str.strip()
                     for name in names:
                         clean_name = name.replace(" ", "")
@@ -530,7 +526,7 @@ with tab2:
             
             if item_count == 0:
                 c.setFont(pdf_font, 12)
-                c.drawString(70, start_y, "（本學期無特殊選購書籍，免繳費）")
+                c.drawString(70, start_y, "（本學期無選購書籍，免繳費）")
                 y_pos = start_y - 25
                 line_height = 20
             else:
@@ -561,7 +557,7 @@ with tab2:
             c.setFont(pdf_font, 12)
             c.drawString(60, box_y + 55, "【家長簽章回條】")
             c.setFont(pdf_font, 11)
-            c.drawString(60, box_y + 25, f"本人已確認上述 座號 {seat} {name} 之購書明細與金額無誤。")
+            c.drawString(60, box_y + 25, f"本人已確認上述 座號 {seat} {name} 之明細與金額無誤。")
             c.drawString(width - 150, box_y + 25, "家長簽名：")
             c.showPage()
         c.save()
@@ -592,7 +588,7 @@ with tab2:
                     subtotal += book['price']
             student_rows.append([seat, name, gifted, s_eng, s_math, s_sci, subtotal])
 
-        headers_left = ["商品名稱", "科目", "精準代號", "購買數量", "單價"]
+        headers_left = ["項目名稱", "科目", "分組代號", "結算數量", "單價"]
         for col_idx, h in enumerate(headers_left, 1):
             cell = ws.cell(row=1, column=col_idx, value=h)
             cell.font = Font(bold=True); cell.alignment = Alignment(horizontal="center")
@@ -671,17 +667,19 @@ with tab2:
 
             for idx, row in df_s.iterrows():
                 clean_name = str(row["姓名"]).replace(" ", "").strip()
+                
                 if file_eng:
                     if clean_name in eng_map: df_s.at[idx, "英組"] = eng_map[clean_name][0]
                     else:
                         df_s.at[idx, "資優類別"] = "語資"
                         df_s.at[idx, "英組"] = "免"
+                        
                 if file_math:
                     if clean_name in math_map:
                         grp_code, grade = math_map[clean_name]
                         df_s.at[idx, "數組"] = grp_code
                         if grade in [9, 3]: 
-                            df_s.at[idx, "自組"] = grp_code  # 三年級自動連動
+                            df_s.at[idx, "自組"] = grp_code  
                         else:
                             df_s.at[idx, "自組"] = "免"
                     else:
@@ -691,8 +689,8 @@ with tab2:
                         df_s.at[idx, "數組"] = "免"
                         df_s.at[idx, "自組"] = "免"
 
-            with st.expander("👀 步驟 1.5：核對學生名條與資優生判定 (點我展開)"):
-                st.write("請確認全班名單與分組狀態 (三年級數/自已自動連動)：")
+            with st.expander("👀 預覽：學生名單與分組狀態"):
+                st.write("請確認全班名單與分組判定結果：")
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "自組", "資優類別"]])
 
             all_books_clean_list = []
@@ -788,7 +786,7 @@ with tab2:
                         'code': c_code,
                         'qty': 0,
                         'subj': c_subj,
-                        'publisher': "🏫 自訂新增項目"
+                        'publisher': "新增自訂項目"
                     })
             if custom_books:
                 all_books_clean_list.append(pd.DataFrame(custom_books))
@@ -799,37 +797,36 @@ with tab2:
                 df_books_clean = safe_psychic_correction(df_books_clean, df_s)
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
-            with st.expander("👀 步驟 1.8：核對書商自動解析清單 (點我展開)"):
-                st.write("這是系統完美抓取的書目與自訂收費。")
+            with st.expander("👀 預覽：書目與收費清單"):
+                st.write("請確認系統讀取的書目與自訂收費金額：")
                 if not df_books_clean.empty:
                     st.dataframe(df_books_clean)
                 else:
                     st.warning("⚠️ 尚未成功讀取任何書目。")
 
             st.divider()
-            st.markdown("#### 🚀 第二步：執行交叉智慧扣合")
+            st.markdown("#### 🚀 步驟三：產生報表")
 
-            if not df_books_clean.empty and st.button("🎯 確認無誤，開始產出所有對帳檔案", type="primary"):
-                with st.spinner("正在進行交叉對帳與 PDF 排版中..."):
+            if not df_books_clean.empty and st.button("確認無誤，開始產出檔案", type="primary"):
+                with st.spinner("正在產生 PDF 與 Excel 檔案中..."):
                     st.session_state.pdf_output = generate_smart_pdf(df_s, df_books_clean)
                     st.session_state.excel_output = generate_excel_master_dynamic(df_s, df_books_clean)
-                    st.success("🎉 對帳與排版完成！檔案已存入網頁快取中，下載任何檔案皆不會重置畫面！")
+                    st.success("✅ 檔案產生完成！請點擊下方按鈕下載。")
 
             if st.session_state.pdf_output and st.session_state.excel_output:
-                st.balloons()
                 col1, col2 = st.columns(2)
                 with col1:
                     st.download_button(
-                        label="📥 下載【家長通知單】(A4 彈性無框 PDF 版)", 
+                        label="📥 下載【家長通知單】(PDF 檔)", 
                         data=st.session_state.pdf_output, 
-                        file_name="全班通知單_一人一頁_雙書商合併版.pdf", 
+                        file_name="全班通知單_自動對帳版.pdf", 
                         mime="application/pdf"
                     )
                 with col2:
                     st.download_button(
-                        label="📥 下載【導師對帳總表】(內含各家獨立分頁)", 
+                        label="📥 下載【導師對帳總表】(Excel 檔)", 
                         data=st.session_state.excel_output, 
-                        file_name="導師總表_多書商對帳版.xlsx", 
+                        file_name="導師總表_收費明細版.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         
@@ -837,4 +834,4 @@ with tab2:
             st.error(f"系統讀取發生錯誤：{e}")
             st.info("提示：請檢查上傳的檔案格式是否正確。")
     else:
-        st.info("💡 請先上傳名單與報價單，核對預覽畫面就會出現喔！")
+        st.info("💡 請先依序上傳名單與報價單，預覽畫面將自動顯示。")
