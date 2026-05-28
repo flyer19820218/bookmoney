@@ -344,7 +344,6 @@ with tab2:
         return None
         
     def guess_subject(name, code=""):
-        # 智慧通靈：先從分組代號逆推科目
         code_str = str(code).replace(" ", "").upper()
         if "英" in code_str: return "英"
         if "數" in code_str: return "數"
@@ -358,36 +357,34 @@ with tab2:
         if any(k in name for k in ["國", "文", "閱讀"]): return "國"
         return "其他"
 
-    # 🌟 徹底修復崩潰問題！精準相容「科別+雙位數班級+字母」的黃金函數
+    # 🌟 徹底抄回當初成功的萬能 .*? 規則！並完美融入科目頭與雙位數班級支援
     def standardize_group_code(val, subj_hint=""):
-        val = str(val).strip()
-        if val in ["1", "全", "", "nan", "None", "無"]: return "1"
+        val = str(val).strip().upper()
+        if val in ["1", "全", "", "NAN", "NONE", "無"]: return "1"
         
-        # 1. 檢查是否包含：中文科別 + 班級數字 + 英文字母 (例如 "英801A", "數12B")
-        match_full = re.search(r'([\u4e00-\u9fa5]*)\s*(\d+)\s*([A-Za-z])', val)
-        if match_full:
-            prefix = match_full.group(1).strip()
-            cls_num = int(match_full.group(2))
-            if cls_num >= 100: cls_num = cls_num % 100 # 支援 812 -> 12 班
-            letter = match_full.group(3).upper()
+        # 1. 抄回最穩定的 .*? 跨字元掃描 (完美相容 801英語文A -> 英1A, 812B -> 12B)
+        match = re.search(r'(\d+).*?([A-Za-z])', val)
+        if match:
+            cls_num = int(match.group(1))
+            if cls_num >= 100: cls_num = cls_num % 100  # 支援 812 班 -> 12 班
+            letter = match.group(2).upper()
             
-            if not prefix and subj_hint in ["英", "數", "自"]: prefix = subj_hint
-            return f"{prefix}{cls_num}{letter}"
-            
-        # 2. 檢查是否只有：班級數字 + 英文字母 (例如 "801A", "12B")
-        match_num_alpha = re.search(r'(\d+)\s*([A-Za-z])', val)
-        if match_num_alpha:
-            cls_num = int(match_num_alpha.group(1))
-            if cls_num >= 100: cls_num = cls_num % 100
-            letter = match_num_alpha.group(2).upper()
+            # 自動判定科目頭字首
             prefix = subj_hint if subj_hint in ["英", "數", "自"] else ""
+            if "英" in val: prefix = "英"
+            elif "數" in val: prefix = "數"
+            elif "自" in val: prefix = "自"
+            
             return f"{prefix}{cls_num}{letter}"
             
-        # 3. 檢查是否只有單純字母 (例如 "A", "B"，交給逆推引擎校正)
+        # 2. 處理只有單純字母的模糊代號 (例如 A -> 英A 或 數A)
         match_alpha = re.search(r'[A-Za-z]', val)
         if match_alpha: 
             letter = match_alpha.group(0).upper()
             prefix = subj_hint if subj_hint in ["英", "數", "自"] else ""
+            if "英" in val: prefix = "英"
+            elif "數" in val: prefix = "數"
+            elif "自" in val: prefix = "自"
             return f"{prefix}{letter}" if prefix else letter
         
         return val
@@ -437,7 +434,6 @@ with tab2:
                             mapping[clean_name] = group_for_this_col
         return mapping
 
-    # 🌟 核心進化：神級「人數逆推」偵探引擎
     def psychic_correction(df_b, df_s):
         group_stats = []
         for col, s_name in [('英組', '英'), ('數組', '數'), ('自組', '自')]:
@@ -460,7 +456,6 @@ with tab2:
                 score = 0
                 s_grp = stat['grp']
                 
-                # A. 人數數量完全命中 (權重最高 +10分)
                 if b_qty > 0 and b_qty == stat['count']: score += 10
                     
                 b_match = re.search(r'([\u4e00-\u9fa5]*)\s*(\d*)\s*([A-Z])', b_code)
@@ -700,7 +695,7 @@ with tab2:
             for col in ["英組", "數組", "自組", "資優類別"]:
                 if col not in df_s.columns: df_s[col] = "無"
 
-            # 🌟 智慧灌入科目提示：英文分組名單就給「英」，數學就給「數」
+            # 智慧灌入科目提示
             eng_map = parse_horizontal_group_file(file_eng, "英") if file_eng else {}
             math_map = parse_horizontal_group_file(file_math, "數") if file_math else {}
 
@@ -788,10 +783,7 @@ with tab2:
                         qty_val = pd.to_numeric(raw_qty, errors='coerce')
                         qty_val = int(qty_val) if pd.notna(qty_val) else 0
                         
-                        # 讓系統先盲猜科目，提供給代號標準化當成提示
                         pre_subj = str(df_b[b_col_subj].iloc[i]) if b_col_subj else guess_subject(raw_name)
-                        
-                        # 將提示餵入標準化，確保 801A + 英文暗示 = 英1A 完美產出
                         raw_code = standardize_group_code(df_b[b_col_code].iloc[i], pre_subj) if b_col_code else "1"
                         subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else guess_subject(raw_name, raw_code)
 
@@ -810,17 +802,17 @@ with tab2:
                 
             df_books_clean = pd.concat(all_books_clean_list, ignore_index=True) if all_books_clean_list else pd.DataFrame()
 
-            # 🌟 啟動：人數逆推偵探引擎 (校正完成後，自動把 A 校正為 英1A，並把科目從國文翻轉回英文！)
+            # 🌟 偵探逆推引擎啟動
             if not df_books_clean.empty:
                 df_books_clean = psychic_correction(df_books_clean, df_s)
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
             with st.expander("👀 步驟 1.8：核對書商自動解析清單 (點我展開)"):
-                st.write("這是系統從您上傳的各家 CSV 中抓取的書目。模糊代號（如 801A、A）已透過偵探引擎自動校正為標準代碼與正確科目！")
+                st.write("這是系統完美抓取的正確書目。模糊代號已透過偵探引擎自動校正為標準代碼與正確科目！")
                 if not df_books_clean.empty:
                     st.dataframe(df_books_clean)
                 else:
-                    st.warning("⚠️ 尚未成功讀取 any 書目，請確認上傳的 CSV 或 Excel 格式。")
+                    st.warning("⚠️ 尚未成功讀取任何書目，請確認上傳的 CSV 或 Excel 格式。")
 
             st.divider()
             st.markdown("#### 🚀 第二步：執行交叉智慧扣合")
