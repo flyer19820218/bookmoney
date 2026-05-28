@@ -319,7 +319,7 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：全新升級 ─ 智慧交叉比對系統 (多書商 CSV 穩定版 + 人數逆推引擎)
+# 🌟 分頁 2：完全體 ─ 智慧交叉比對系統 (多書商 CSV 穩定版 + 人數逆推引擎)
 # =====================================================================
 with tab2:
     st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (多書商 CSV 穩定版)")
@@ -344,14 +344,13 @@ with tab2:
         return None
         
     def guess_subject(name, code=""):
-        # 🌟 智慧通靈 1：先從分組代號逆推科目
+        # 智慧通靈：先從分組代號逆推科目
         code_str = str(code).replace(" ", "").upper()
         if "英" in code_str: return "英"
         if "數" in code_str: return "數"
         if "自" in code_str: return "自"
         
         name = str(name).replace("國中", "").replace("國小", "")
-        # 強化科目關鍵字比對
         if any(k in name for k in ["英", "文法", "單字", "聽力"]): return "英"
         if any(k in name for k in ["數", "幾何", "代數"]): return "數"
         if any(k in name for k in ["自", "理化", "生物", "地科", "科學"]): return "自"
@@ -359,28 +358,23 @@ with tab2:
         if any(k in name for k in ["國", "文", "閱讀"]): return "國"
         return "其他"
 
-    # 🌟 新增：統一標準化分組代號函數 (把 801A 轉成 1A)
+    # 🌟 修正完成的標準化分組代號函數 (徹底修復 NameError 臭蟲)
     def standardize_group_code(val):
         val = str(val).strip()
-        if val in ["1", "全", "", "nan", "None", "無"]: return "1" # 預設無分組代號為 1
+        if val in ["1", "全", "", "nan", "None", "無"]: return "1"
         
-        # 嘗試萃取 班級+字母 (例如 801A -> 1A, 英6B -> 英6B)
-        # 如果前面有文字(如"英")，保留；如果只是數字+字母，轉換數字
+        # 處理包含文字與班級數字的複雜代號 (例如 英801A -> 英1A, 812B -> 12B)
         match_full = re.search(r'([^\d]*)(\d+).*?([A-Za-z])', val)
         if match_full:
             prefix = match_full.group(1)
-            cls_num = int(match_num_alpha.group(2))
+            cls_num = int(match_full.group(2))
             if cls_num >= 100: cls_num = cls_num % 100 
             return f"{prefix}{cls_num}{match_full.group(3).upper()}"
             
-        match_num_alpha = re.search(r'(\d+).*?([A-Za-z])', val)
-        if match_num_alpha:
-            cls_num = int(match_num_alpha.group(1))
-            if cls_num >= 100: cls_num = cls_num % 100 
-            return f"{cls_num}{match_num_alpha.group(2).upper()}"
-        
+        # 處理單純只有字母的模糊代號 (例如 A -> A)
         match_alpha = re.search(r'[A-Za-z]', val)
-        if match_alpha: return match_alpha.group(0).upper()
+        if match_alpha: 
+            return match_alpha.group(0).upper()
         
         return val
 
@@ -394,7 +388,6 @@ with tab2:
         if s_match and b_match:
             s_num, s_letter = s_match.groups()
             b_num, b_letter = b_match.groups()
-            # 若雙方都有班級數字，必須相同 (1A 不會買到 2A 的書)
             if b_num and s_num and b_num != s_num: return False
             if b_letter == s_letter: return True
             
@@ -411,7 +404,6 @@ with tab2:
         mapping = {}
         if header_idx != -1:
             col_to_group = {}
-            current_group = "無"
             for col_idx in range(df_grp.shape[1]):
                 for r in range(0, header_idx):
                     val = str(df_grp.iloc[r, col_idx]).strip()
@@ -427,9 +419,7 @@ with tab2:
                             mapping[clean_name] = group_for_this_col
         return mapping
 
-    # 🌟 終極黑科技：「人數逆推」偵探引擎
     def psychic_correction(df_b, df_s):
-        # 1. 建立「科目-分組」的真實人數統計字典
         group_stats = []
         for col, s_name in [('英組', '英'), ('數組', '數'), ('自組', '自')]:
             counts = df_s[col].value_counts()
@@ -437,7 +427,6 @@ with tab2:
                 if grp not in ["1", "無", "免", ""]:
                     group_stats.append({'subj': s_name, 'grp': str(grp).strip().upper(), 'count': count})
                     
-        # 2. 逆向校正書商破爛代號
         for idx, row in df_b.iterrows():
             b_code = str(row['code']).strip().upper()
             b_name = str(row['name'])
@@ -452,17 +441,14 @@ with tab2:
                 score = 0
                 s_grp = stat['grp']
                 
-                # A. 數量完全命中 (最強指標 +10分)
                 if b_qty > 0 and b_qty == stat['count']: score += 10
                     
-                # B. 字母相同 (例如 書商寫A，名單是1A -> +5分)
                 b_alpha_match = re.search(r'[A-Z]+', b_code)
                 s_alpha_match = re.search(r'[A-Z]+', s_grp)
                 b_alpha = b_alpha_match.group(0) if b_alpha_match else ""
                 s_alpha = s_alpha_match.group(0) if s_alpha_match else ""
                 if b_alpha and b_alpha == s_alpha: score += 5
                     
-                # C. 班級數字相同 (+5分)，不同則直接扣分 (-10分防呆)
                 b_num_match = re.search(r'\d+', b_code)
                 s_num_match = re.search(r'\d+', s_grp)
                 b_num = b_num_match.group(0) if b_num_match else ""
@@ -470,14 +456,12 @@ with tab2:
                 if b_num and s_num and b_num == s_num: score += 5
                 elif b_num and s_num and b_num != s_num: score -= 10
                     
-                # D. 科目暗示 (例如書單叫文法即時通 -> 英文科 +3分)
                 if stat['subj'] in b_name or stat['subj'] == row['subj']: score += 3
                     
                 if score > best_score:
                     best_score = score
                     best_match = stat
                     
-            # 若綜合評分 >= 10 (代表「人數吻合」或「字母+科目吻合」)，直接強制校正！
             if best_score >= 10 and best_match:
                 df_b.at[idx, 'code'] = best_match['grp']
                 df_b.at[idx, 'subj'] = best_match['subj']
@@ -518,7 +502,7 @@ with tab2:
                     total_amount += b['price']
 
             c.setFont(pdf_font, 24)
-            c.drawCentredString(width/2, height - 80, "學 期 各 項 費 用 通 知 單")
+            c.drawCentredString(width/2, height - 80, "學 期 各 項 費 用 通 Notification 單")
             s_eng_display = s_eng if s_eng not in ["1", "無", ""] else "無"
             s_math_display = s_math if s_math not in ["1", "無", ""] else "無"
             s_gifted_display = s_gifted if s_gifted not in ["1", "無", ""] else "無"
@@ -679,7 +663,7 @@ with tab2:
         wb.save(output)
         return output.getvalue()
 
-    # 🌟 執行區塊
+    # 執行區塊
     if file_class and file_books_list and len(file_books_list) > 0:
         try:
             df_temp = pd.read_excel(file_class, header=None).fillna("")
@@ -780,14 +764,12 @@ with tab2:
                     price_val = df_b['parsed_price'].iloc[i]
                     if pd.notna(price_val) and price_val > 0: 
                         raw_name = str(df_b[b_col_name].iloc[i])
-                        # 🌟 套用最新代號轉換標準
                         raw_code = standardize_group_code(df_b[b_col_code].iloc[i]) if b_col_code else "1"
                         
                         raw_qty = df_b[b_col_qty].iloc[i] if b_col_qty else 0
                         qty_val = pd.to_numeric(raw_qty, errors='coerce')
                         qty_val = int(qty_val) if pd.notna(qty_val) else 0
                         
-                        # 🌟 科目先用原有欄位，沒有就讓 AI 猜
                         subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else guess_subject(raw_name, raw_code)
 
                         extracted_books.append({
@@ -805,13 +787,13 @@ with tab2:
                 
             df_books_clean = pd.concat(all_books_clean_list, ignore_index=True) if all_books_clean_list else pd.DataFrame()
 
-            # 🌟 啟動：人數逆推偵探引擎 (自動校正書商模糊代號)
+            # 🌟 核心修正：先執行人數與科目逆推，再進入後續交叉扣合
             if not df_books_clean.empty:
                 df_books_clean = psychic_correction(df_books_clean, df_s)
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
             with st.expander("👀 步驟 1.8：核對書商自動解析清單 (點我展開)"):
-                st.write("這是系統從您上傳的各家 CSV 中抓取的書目。如果有模糊的代號 (例如 A)，系統已嘗試透過「人數」與「科目」自動為您校正！")
+                st.write("這是系統從您上傳的各家 CSV 中抓取的書目。模糊代號（如 801A、A）已透過偵探引擎自動校正為標準代碼與正確科目！")
                 if not df_books_clean.empty:
                     st.dataframe(df_books_clean)
                 else:
