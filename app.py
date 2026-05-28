@@ -453,21 +453,55 @@ with tab2:
         st.success("✅ 基礎名單與書商報價單已偵測到！")
         
         if st.button("🎯 執行全班 AB 分組精準對帳並產生 PDF", type="primary"):
-            with st.spinner("正在以學校分組資料覆蓋書商錯誤數量，完美排版中..."):
+            with st.spinner("正在自動過濾書商表頭廢話，完美排版中..."):
                 try:
                     # 1. 讀取班級總表
                     df_s = pd.read_excel(file_class).fillna("")
                     
-                    # 2. 智慧讀取書商報價單
+                    # 2. 🌟 【智慧防呆核心】自動偵測並定位書商表格的真實起點
+                    header_skip = 0
+                    df_b = None
+                    keywords_header = ["品名", "商品", "名稱", "書籍", "單價", "價格", "金額", "序號"]
+                    
                     if file_books.name.endswith('.csv'):
-                        df_b = pd.read_csv(file_books).fillna("")
+                        bytes_data = file_books.read()
+                        used_enc = 'utf-8'
+                        lines = []
+                        # 自動嘗試常見台灣中文字型編碼
+                        for enc in ['utf-8', 'big5', 'cp950', 'utf-8-sig']:
+                            try:
+                                lines = bytes_data.decode(enc).splitlines()
+                                used_enc = enc
+                                break
+                            except:
+                                continue
+                        
+                        # 尋找真正包含標題的行數
+                        for idx, line in enumerate(lines):
+                            if any(kw in line for kw in keywords_header):
+                                header_skip = idx
+                                break
+                        
+                        file_books.seek(0)
+                        try:
+                            df_b = pd.read_csv(file_books, skiprows=header_skip, encoding=used_enc).fillna("")
+                        except:
+                            file_books.seek(0)
+                            df_b = pd.read_csv(file_books, skiprows=header_skip, on_bad_lines='skip').fillna("")
                     else:
-                        df_b = pd.read_excel(file_books).fillna("")
+                        # 如果書商給的是 Excel 檔，也同樣動態掃描尋找標題列起點
+                        df_temp = pd.read_excel(file_books).fillna("")
+                        for idx, row in df_temp.iterrows():
+                            row_str = "".join([str(val) for val in row.values])
+                            if any(kw in row_str for kw in keywords_header):
+                                header_skip = idx + 1
+                                break
+                        file_books.seek(0)
+                        df_b = pd.read_excel(file_books, skiprows=header_skip).fillna("")
                         
                     # 3. 如果有上傳獨立的英文/數學組別 CSV，執行動態合併校正
                     if file_eng:
                         df_e = pd.read_csv(file_eng) if file_eng.name.endswith('.csv') else pd.read_excel(file_eng)
-                        # 比對座號或姓名將組別合進主表
                         c_seat = find_column(df_e, ["座號", "號碼"], "座號")
                         c_group = find_column(df_e, ["組", "英文"], "英組")
                         df_e_clean = df_e[[c_seat, c_group]].rename(columns={c_seat: "座號", c_group: "英組"})
@@ -493,14 +527,14 @@ with tab2:
                         'subj': df_b[col_subj].astype(str)
                     })
 
-                    # 自動判斷科目簡寫 (例如歷史/地理/公民自動歸入社會，方便匹配)
+                    # 自動將歷史/地理/公民歸入社會科方便比對
                     df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
                     # 5. 生成完美的 ReportLab PDF
                     pdf_result = generate_reportlab_pdf(df_s, df_books_clean)
                     
                     st.balloons()
-                    st.success("🎉 交叉比對校正成功！已自動用學校名單人數剔除書商出貨誤差。")
+                    st.success("🎉 交叉比對校正成功！已自動跳過書商抬頭廢話，並用學校人數精準產出。")
                     
                     st.download_button(
                         label="📥 下載全班 A4 PDF 繳費通知單 (一人一張完美列印版)",
