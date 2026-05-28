@@ -342,7 +342,7 @@ with tab2:
                 return col
         return None
         
-    # 🌟 內部工具：智慧解析「並排式」分組名單 (透過姓名扣合)
+    # 🌟 內部工具：智慧解析「並排式」分組名單 (解決合併儲存格問題)
     def parse_horizontal_group_file(uploaded_file):
         if uploaded_file.name.endswith('.csv'):
             df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
@@ -360,7 +360,7 @@ with tab2:
             group_row_idx = max(0, header_idx - 1)
             current_group = "1"
             
-            # 掃描每一欄，動態捕捉上方的 A/B/C 分組代號
+            # 從左掃到右，記住最新的分組名稱 (解決 Excel 合併儲存格通常只把值放在第一欄的問題)
             for col_idx in range(df_grp.shape[1]):
                 val_above = str(df_grp.iloc[group_row_idx, col_idx]).strip()
                 if val_above and val_above != "nan":
@@ -371,7 +371,7 @@ with tab2:
                     else:
                         current_group = val_above
 
-                # 若此欄是「姓名」欄，就把底下的學生都貼上目前的標籤
+                # 若此欄是「姓名」欄，就把底下的學生都貼上目前記住的標籤
                 if "姓名" in str(df_grp.iloc[header_idx, col_idx]):
                     names = df_grp.iloc[header_idx+1:, col_idx].astype(str).str.strip()
                     for name in names:
@@ -452,7 +452,7 @@ with tab2:
     # 🌟 執行區塊
     if file_class and file_books:
         try:
-            # 1. 智慧讀取原班名單 (自動跳過最上方「八年一班」這種廢話標題)
+            # 1. 智慧讀取原班名單 (自動跳過最上方「八年一班」這類大標題)
             df_temp = pd.read_excel(file_class, header=None).fillna("")
             header_idx = 0
             for idx, row in df_temp.iterrows():
@@ -469,19 +469,19 @@ with tab2:
             for col in ["英組", "數組", "自組", "資優類別"]:
                 if col not in df_s.columns: df_s[col] = "1"
 
-            # 🌟 智慧整合「並排式」分組名單
+            # 🌟 智慧整合「並排式」分組名單 (直接透過姓名跨表比對)
             if file_eng:
                 eng_map = parse_horizontal_group_file(file_eng)
-                # 透過「姓名」去對應 A/B 分組
                 df_s["英組"] = df_s["姓名"].map(eng_map).fillna("1")
                 
             if file_math:
                 math_map = parse_horizontal_group_file(file_math)
                 df_s["數組"] = df_s["姓名"].map(math_map).fillna("1")
 
+            # 顯示全班完整名單 (已拔除 .head() 限制)
             with st.expander("👀 步驟 1.5：核對學生名條 (點我展開)", expanded=True):
-                st.write("這是系統抓到的前 5 位學生，請確認「座號」、「姓名」與「抓到的分組」是否正確：")
-                st.dataframe(df_s[["座號", "姓名", "英組", "數組"]].head())
+                st.write("這是系統抓到的全班學生，請全面確認「座號」、「姓名」與「抓到的分組」是否正確：")
+                st.dataframe(df_s[["座號", "姓名", "英組", "數組"]])
 
             # 2. 智慧讀取書商報價單
             header_skip = 0
@@ -526,9 +526,10 @@ with tab2:
             })
             df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
+            # 顯示完整書目清單 (已拔除 .head(10) 限制)
             with st.expander("👀 步驟 1.8：核對書商書籍清單 (點我展開)"):
-                st.write("這是系統抓到的書目，請確認「單價」與「分組代號(附記)」是否正確：")
-                st.dataframe(df_books_clean.head(10))
+                st.write("這是系統抓到的完整書目，請確認「單價」與「分組代號(附記)」是否正確：")
+                st.dataframe(df_books_clean)
 
             st.divider()
             st.markdown("#### 🚀 第二步：執行交叉智慧扣合與產出")
