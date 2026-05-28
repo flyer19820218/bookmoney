@@ -319,36 +319,33 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：全新升級 ─ 智慧交叉比對系統 (產出一人一頁自動縮放 PDF)
+# 🌟 分頁 2：全新升級 ─ 智慧交叉比對系統 (支援多書商合併、動態分頁對帳)
 # =====================================================================
 with tab2:
     st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (產出完美 PDF)")
-    st.markdown("直接上傳學校名單原始檔與書商 CSV，**自動校正人數**，產出一人一張的 PDF 通知單與導師 Excel 對帳表。")
+    st.markdown("直接上傳學校名單原始檔與**多份書商 CSV**，自動產出 PDF 通知單與各書商獨立分頁的對帳表。")
 
     st.markdown("#### 📁 第一步：上傳學校名單與書商報價")
 
     col_a, col_b = st.columns(2)
     with col_a:
         file_class = st.file_uploader("1. 班級總名單 (Excel 檔)", type=["xlsx", "xls"])
-        file_books = st.file_uploader("2. 書商報價單 (CSV 或 Excel 檔)", type=["csv", "xlsx", "xls"])
+        # 🌟 升級：支援一次上傳多家書商報價單
+        file_books_list = st.file_uploader("2. 書商報價單 (可一次框選多份上傳)", type=["csv", "xlsx", "xls"], accept_multiple_files=True)
     with col_b:
         file_eng   = st.file_uploader("3. 英文分組名單 (可選)", type=["csv", "xlsx", "xls"])
         file_math  = st.file_uploader("4. 數學分組名單 (可選)", type=["csv", "xlsx", "xls"])
 
-    # 🌟 狀態記憶：防止按下下載按鈕後畫面重置
-    if 'pdf_output' not in st.session_state:
-        st.session_state.pdf_output = None
-    if 'excel_output' not in st.session_state:
-        st.session_state.excel_output = None
+    # 🌟 狀態記憶
+    if 'pdf_output' not in st.session_state: st.session_state.pdf_output = None
+    if 'excel_output' not in st.session_state: st.session_state.excel_output = None
 
-    # 🌟 內部工具：智慧欄位比對
+    # 內部工具：智慧欄位比對
     def find_column(df, keywords, default_name):
         for col in df.columns:
-            if any(kw in str(col) for kw in keywords):
-                return col
+            if any(kw in str(col) for kw in keywords): return col
         return None
         
-    # 🌟 內部工具：自動通靈猜測科目
     def guess_subject(name):
         name = str(name).replace("國中", "").replace("國小", "")
         if any(k in name for k in ["英"]): return "英"
@@ -358,18 +355,13 @@ with tab2:
         if any(k in name for k in ["國", "文"]): return "國"
         return "其他"
 
-    # 🌟 內部工具：智慧解析「並排式」分組名單
     def parse_horizontal_group_file(uploaded_file):
-        if uploaded_file.name.endswith('.csv'):
-            df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
-        else:
-            df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
-            
+        if uploaded_file.name.endswith('.csv'): df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
+        else: df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
         header_idx = -1
         for idx, row in df_grp.iterrows():
             if any(isinstance(v, str) and "姓名" in v for v in row.values):
                 header_idx = idx ; break
-                
         mapping = {}
         if header_idx != -1:
             col_to_group = {}
@@ -382,7 +374,6 @@ with tab2:
                         if match: current_group = match.group(0).upper()
                         elif len(val) <= 2: current_group = val
                 col_to_group[col_idx] = current_group
-
             for col_idx in range(df_grp.shape[1]):
                 if "姓名" in str(df_grp.iloc[header_idx, col_idx]):
                     group_for_this_col = col_to_group[col_idx]
@@ -417,20 +408,16 @@ with tab2:
                 elif b['subj'] == "數" and s_math in b['code']: is_match = True
                 elif b['subj'] == "自" and s_sci in b['code']: is_match = True
                 
-                # 資優生免購邏輯
                 if s_gifted == "語資" and b['subj'] in ["國", "英"]: is_match = False
                 if s_gifted == "數資" and b['subj'] in ["數", "自"]: is_match = False
                 if "語資" in s_gifted and "數資" in s_gifted and b['subj'] in ["國", "英", "數", "自"]: is_match = False
                 
                 if is_match:
-                    # 移除了科目的儲存，只保留書名與價格
                     personal_list.append((b['name'], b['price']))
                     total_amount += b['price']
 
-            # --- 開始繪製 PDF ---
             c.setFont(pdf_font, 24)
             c.drawCentredString(width/2, height - 80, "學 期 各 項 費 用 通 知 單")
-            
             c.setFont(pdf_font, 14)
             c.drawString(60, height - 130, f"座號：{seat}        姓名：{name}")
             c.drawRightString(width - 60, height - 130, f"狀態：英({s_eng}) 數({s_math}) 資優({s_gifted if s_gifted != '1' else '無'})")
@@ -439,17 +426,15 @@ with tab2:
             c.setLineWidth(2)
             c.line(60, height - 145, width - 60, height - 145)
             
-            # 乾淨的雙欄位表頭
             c.setFont(pdf_font, 12)
             c.drawString(70, height - 170, "書籍 / 項目名稱")
             c.drawRightString(width - 70, height - 170, "金額 (元)")
-            
             c.setLineWidth(0.5)
             c.line(60, height - 180, width - 60, height - 180)
             
-            # 🌟 AI 自動縮放行距與字體系統 (Auto-Scaling)
+            # 🌟 AI 自動彈性縮放排版
             start_y = height - 205
-            end_y = 170 # 保留給下方總計與簽章的安全距離
+            end_y = 160 
             available_space = start_y - end_y
             item_count = len(personal_list)
             
@@ -459,11 +444,9 @@ with tab2:
                 y_pos = start_y - 25
                 line_height = 20
             else:
-                default_line_height = 22 # 預設空格比之前小一點，看起來較緊湊
+                default_line_height = 22 
                 if item_count * default_line_height > available_space:
-                    # 如果書太多超過一頁，強行壓縮行距
                     line_height = available_space / item_count
-                    # 字體等比例縮小，但設下限 9pt 避免家長看不到
                     dynamic_font_size = max(9, int(line_height * 0.6)) 
                 else:
                     line_height = default_line_height
@@ -476,55 +459,48 @@ with tab2:
                     c.drawRightString(width - 70, y_pos, f"$ {int(price)}")
                     y_pos -= line_height
             
-            # 總計區塊
             c.setLineWidth(1)
             c.line(60, y_pos + (line_height * 0.6), width - 60, y_pos + (line_height * 0.6))
-            
             c.setFont(pdf_font, 16)
             c.drawString(70, y_pos - 20, "應繳總計金額：")
             c.setFillColorRGB(0.8, 0, 0)
             c.drawRightString(width - 70, y_pos - 20, f"$ {int(total_amount)} 元")
             c.setFillColorRGB(0, 0, 0)
             
-            # 底部家長簽章回條
-            box_y = 60
-            c.setStrokeColorRGB(0.4, 0.4, 0.4)
-            c.roundRect(60, box_y, width - 120, 80, 8, stroke=1, fill=0)
+            # 底部回條區 (無底線、無外框)
+            box_y = 55
             c.setFont(pdf_font, 12)
-            c.drawString(75, box_y + 55, "【家長簽章回條】")
+            c.drawString(60, box_y + 55, "【家長簽章回條】")
             c.setFont(pdf_font, 11)
-            c.drawString(75, box_y + 25, f"本人已確認上述 座號 {seat} {name} 之購書明細與金額無誤。")
-            c.drawString(width - 200, box_y + 25, "家長簽名：__________________")
+            c.drawString(60, box_y + 25, f"本人已確認上述 座號 {seat} {name} 之購書明細與金額無誤。")
+            c.drawString(width - 150, box_y + 25, "家長簽名：")
             
             c.showPage()
-            
         c.save()
         pdf_io.seek(0)
         return pdf_io
 
-    # 🌟 Tab2 專用 Excel 產生器：導師收費總表
-    def generate_excel_master_tab2(df_students, df_books):
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "班級收費總表"
-        
+    # 🌟 內部工具：填寫單一分頁的資料
+    def fill_sheet_data(ws, sheet_title, df_students, df_books):
+        ws.title = sheet_title
         book_rows = []
-        for _, b in df_books.iterrows():
+        for _, book in df_books.iterrows():
+            b_name, b_subj, b_code, b_price = book['name'], book['subj'], book['code'], book['price']
             qty = 0
             for _, s in df_students.iterrows():
                 is_match = False
-                if b['code'] in ["1", "全", "", "nan"]: is_match = True
-                elif b['subj'] == "英" and str(s.get("英組","1")) in b['code']: is_match = True
-                elif b['subj'] == "數" and str(s.get("數組","1")) in b['code']: is_match = True
-                elif b['subj'] == "自" and str(s.get("自組","1")) in b['code']: is_match = True
+                if b_code in ["1", "全", "", "nan"]: is_match = True
+                elif b_subj == "英" and str(s.get("英組","1")) in b_code: is_match = True
+                elif b_subj == "數" and str(s.get("數組","1")) in b_code: is_match = True
+                elif b_subj == "自" and str(s.get("自組","1")) in b_code: is_match = True
                 
                 gifted = str(s.get("資優類別", ""))
-                if gifted == "語資" and b['subj'] in ["國", "英"]: is_match = False
-                if gifted == "數資" and b['subj'] in ["數", "自"]: is_match = False
-                if "語資" in gifted and "數資" in gifted and b['subj'] in ["國", "英", "數", "自"]: is_match = False
+                if gifted == "語資" and b_subj in ["國", "英"]: is_match = False
+                if gifted == "數資" and b_subj in ["數", "自"]: is_match = False
+                if "語資" in gifted and "數資" in gifted and b_subj in ["國", "英", "數", "自"]: is_match = False
                 
                 if is_match: qty += 1
-            book_rows.append([b['name'], b['subj'], b['code'], qty, b['price']])
+            book_rows.append([b_name, b_subj, b_code, qty, b_price])
 
         student_rows = []
         for _, s in df_students.iterrows():
@@ -532,18 +508,18 @@ with tab2:
             gifted, eng, math, sci = s.get("資優類別", ""), s.get("英組", "1"), s.get("數組", "1"), s.get("自組", "1")
             
             subtotal = 0
-            for _, b in df_books.iterrows():
+            for _, book in df_books.iterrows():
+                b_subj, b_code, b_price = book['subj'], book['code'], book['price']
                 is_match = False
-                if b['code'] in ["1", "全", "", "nan"]: is_match = True
-                elif b['subj'] == "英" and str(eng) in b['code']: is_match = True
-                elif b['subj'] == "數" and str(math) in b['code']: is_match = True
-                elif b['subj'] == "自" and str(sci) in b['code']: is_match = True
+                if b_code in ["1", "全", "", "nan"]: is_match = True
+                elif b_subj == "英" and str(eng) in b_code: is_match = True
+                elif b_subj == "數" and str(math) in b_code: is_match = True
+                elif b_subj == "自" and str(sci) in b_code: is_match = True
                 
-                if gifted == "語資" and b['subj'] in ["國", "英"]: is_match = False
-                if gifted == "數資" and b['subj'] in ["數", "自"]: is_match = False
-                if "語資" in gifted and "數資" in gifted and b['subj'] in ["國", "英", "數", "自"]: is_match = False
-                
-                if is_match: subtotal += b['price']
+                if gifted == "語資" and b_subj in ["國", "英"]: is_match = False
+                if gifted == "數資" and b_subj in ["數", "自"]: is_match = False
+                if "語資" in gifted and "數資" in gifted and b_subj in ["國", "英", "數", "自"]: is_match = False
+                if is_match: subtotal += b_price
             student_rows.append([seat, name, gifted, eng, math, sci, subtotal])
 
         headers_left = ["商品名稱", "科目", "分組代號", "購買數量", "單價"]
@@ -573,11 +549,11 @@ with tab2:
                 if c_idx == 13: cell.font = Font(bold=True)
 
         last_row = max(len(book_rows), len(student_rows)) + 2
-        ws.cell(row=last_row, column=12, value="班級總計").font = Font(bold=True)
+        ws.cell(row=last_row, column=12, value="單頁總計").font = Font(bold=True)
         total_sum = sum([s[-1] for s in student_rows])
         tot_cell = ws.cell(row=last_row, column=13, value=total_sum)
         tot_cell.font = Font(bold=True, color="FF0000"); tot_cell.border = thin_border
-
+        
         ws.column_dimensions['A'].width = 35; ws.column_dimensions['B'].width = 8
         ws.column_dimensions['C'].width = 10; ws.column_dimensions['D'].width = 10; ws.column_dimensions['E'].width = 8
         ws.column_dimensions['F'].width = 3  
@@ -586,14 +562,28 @@ with tab2:
         ws.column_dimensions['K'].width = 8 ; ws.column_dimensions['L'].width = 8
         ws.column_dimensions['M'].width = 12
 
+    # 🌟 核心引擎：多書商動態分頁 Excel 總表建構器
+    def generate_excel_master_dynamic(df_students, df_books_clean):
+        wb = Workbook()
+        ws1 = wb.active
+        fill_sheet_data(ws1, "班級收費總表(全)", df_students, df_books_clean)
+        
+        # 依據抓到的書商名稱，動態建立專屬對帳分頁
+        unique_publishers = df_books_clean['publisher'].unique()
+        for pub in unique_publishers:
+            df_pub = df_books_clean[df_books_clean['publisher'] == pub]
+            ws_pub = wb.create_sheet()
+            safe_pub_name = str(pub).replace("/", "").replace("\\", "")[:12] # 防止 Excel 頁籤名稱過長
+            fill_sheet_data(ws_pub, f"{safe_pub_name}對帳表", df_students, df_pub)
+            
         output = io.BytesIO()
         wb.save(output)
         return output.getvalue()
 
     # 🌟 執行區塊
-    if file_class and file_books:
+    if file_class and file_books_list and len(file_books_list) > 0:
         try:
-            # 1. 智慧讀取原班名單
+            # 1. 處理名單與分組
             df_temp = pd.read_excel(file_class, header=None).fillna("")
             header_idx = 0
             for idx, row in df_temp.iterrows():
@@ -605,11 +595,9 @@ with tab2:
             c_name = find_column(df_s, ["姓名", "名稱", "學生"], "姓名")
             if c_seat and c_seat != "座號": df_s = df_s.rename(columns={c_seat: "座號"})
             if c_name and c_name != "姓名": df_s = df_s.rename(columns={c_name: "姓名"})
-            
             for col in ["英組", "數組", "自組", "資優類別"]:
                 if col not in df_s.columns: df_s[col] = "1"
 
-            # 🌟 智慧整合分組名單 ＆ 資優生判定
             eng_map = parse_horizontal_group_file(file_eng) if file_eng else {}
             math_map = parse_horizontal_group_file(file_math) if file_math else {}
 
@@ -620,7 +608,6 @@ with tab2:
                     else:
                         df_s.at[idx, "資優類別"] = "語資"
                         df_s.at[idx, "英組"] = "免"
-                
                 if file_math:
                     if clean_name in math_map: df_s.at[idx, "數組"] = math_map[clean_name]
                     else:
@@ -630,83 +617,108 @@ with tab2:
                         df_s.at[idx, "數組"] = "免"
 
             with st.expander("👀 步驟 1.5：核對學生名條與資優生判定 (點我展開)"):
-                st.write("請確認「分組」是否成功，找不到分組的學生會標示為「語資/數資」：")
+                st.write("請確認全班名單與分組狀態：")
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "資優類別"]])
 
-            # 2. 智慧讀取書商報價單
-            header_skip = 0
-            keywords_header = ["品名", "商品", "名稱", "書籍", "單價", "價格", "金額", "序號"]
-            if file_books.name.endswith('.csv'):
-                bytes_data = file_books.read()
-                lines = []
-                used_enc = 'utf-8'
-                for enc in ['utf-8', 'big5', 'cp950', 'utf-8-sig']:
-                    try:
-                        lines = bytes_data.decode(enc).splitlines()
-                        used_enc = enc ; break
-                    except: continue
-                for idx, line in enumerate(lines):
-                    if any(kw in line for kw in keywords_header):
-                        header_skip = idx ; break
-                file_books.seek(0)
-                try: df_b = pd.read_csv(file_books, skiprows=header_skip, encoding=used_enc).fillna("")
-                except: 
-                    file_books.seek(0)
-                    df_b = pd.read_csv(file_books, skiprows=header_skip, on_bad_lines='skip').fillna("")
-            else:
-                df_temp2 = pd.read_excel(file_books, header=None).fillna("")
-                for idx, row in df_temp2.iterrows():
-                    row_str = "".join([str(val) for val in row.values])
-                    if any(kw in row_str for kw in keywords_header):
-                        header_skip = idx ; break
-                file_books.seek(0)
-                df_b = pd.read_excel(file_books, skiprows=header_skip).fillna("")
-
-            b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
-            b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
-            b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
+            # 2. 🌟 處理多份書商報價單
+            all_books_clean_list = []
             
-            b_col_subj = find_column(df_b, ["科目", "類別"], "科目")
-            if b_col_subj: subj_series = df_b[b_col_subj].astype(str)
-            else: subj_series = df_b[b_col_name].apply(guess_subject)
+            for fb in file_books_list:
+                header_skip = 0
+                publisher_name = fb.name.split('.')[0] # 預設使用檔名
+                keywords_header = ["品名", "商品", "名稱", "書籍", "單價", "價格", "金額", "序號"]
+                
+                # 自動讀取並抓取頭部廢話中的「書商名稱」
+                if fb.name.endswith('.csv'):
+                    bytes_data = fb.read()
+                    lines = []
+                    used_enc = 'utf-8'
+                    for enc in ['utf-8', 'big5', 'cp950', 'utf-8-sig']:
+                        try:
+                            lines = bytes_data.decode(enc).splitlines()
+                            used_enc = enc ; break
+                        except: continue
+                        
+                    for idx, line in enumerate(lines):
+                        if any(kw in line for kw in keywords_header):
+                            header_skip = idx ; break
+                            
+                    # 向上尋找第一行有文字的當作書商名稱 (例如：中偉書局估價單)
+                    for r in range(header_skip):
+                        clean_line = lines[r].replace(',', '').strip()
+                        if clean_line:
+                            publisher_name = clean_line.replace("估價單", "").replace("報價單", "").strip()
+                            break
+                            
+                    fb.seek(0)
+                    try: df_b = pd.read_csv(fb, skiprows=header_skip, encoding=used_enc).fillna("")
+                    except: 
+                        fb.seek(0)
+                        df_b = pd.read_csv(fb, skiprows=header_skip, on_bad_lines='skip').fillna("")
+                else:
+                    df_temp2 = pd.read_excel(fb, header=None).fillna("")
+                    for idx, row in df_temp2.iterrows():
+                        row_str = "".join([str(val) for val in row.values])
+                        if any(kw in row_str for kw in keywords_header):
+                            header_skip = idx ; break
+                            
+                    for r in range(header_skip):
+                        row_str = "".join([str(val) for val in df_temp2.iloc[r].values if str(val).strip() and str(val) != "nan"])
+                        if row_str:
+                            publisher_name = row_str.replace("估價單", "").replace("報價單", "").strip()
+                            break
+                            
+                    fb.seek(0)
+                    df_b = pd.read_excel(fb, skiprows=header_skip).fillna("")
 
-            df_books_clean = pd.DataFrame({
-                'name': df_b[b_col_name],
-                'price': pd.to_numeric(df_b[b_col_price], errors='coerce').fillna(0),
-                'code': df_b[b_col_code].astype(str),
-                'subj': subj_series
-            })
-            df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
+                b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
+                b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
+                b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
+                b_col_subj = find_column(df_b, ["科目", "類別"], "科目")
+                
+                if b_col_subj: subj_series = df_b[b_col_subj].astype(str)
+                else: subj_series = df_b[b_col_name].apply(guess_subject)
 
-            with st.expander("👀 步驟 1.8：核對書商書籍清單 (點我展開)"):
-                st.write("這是系統抓到的完整書目，請確認 AI 通靈猜測的「科目」是否正確：")
+                df_temp_clean = pd.DataFrame({
+                    'name': df_b[b_col_name],
+                    'price': pd.to_numeric(df_b[b_col_price], errors='coerce').fillna(0),
+                    'code': df_b[b_col_code].astype(str),
+                    'subj': subj_series,
+                    'publisher': publisher_name # 將抓到的書商名稱綁定到這本書
+                })
+                df_temp_clean['subj'] = df_temp_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
+                all_books_clean_list.append(df_temp_clean)
+                
+            df_books_clean = pd.concat(all_books_clean_list, ignore_index=True)
+
+            with st.expander("👀 步驟 1.8：核對合併後的書目清單 (點我展開)"):
+                st.write("這是系統抓到的所有書目，您可以看到最右側的「所屬書商」欄位已經自動歸類好囉！")
                 st.dataframe(df_books_clean)
 
             st.divider()
             st.markdown("#### 🚀 第二步：執行交叉智慧扣合")
 
-            if st.button("🎯 確認無誤，開始產出檔案", type="primary"):
+            if st.button("🎯 確認無誤，開始產出所有對帳檔案", type="primary"):
                 with st.spinner("正在進行交叉對帳與 PDF 排版中..."):
                     st.session_state.pdf_output = generate_smart_pdf(df_s, df_books_clean)
-                    st.session_state.excel_output = generate_excel_master_tab2(df_s, df_books_clean)
-                    st.success("🎉 對帳與排版完成！請點擊下方按鈕下載（現在下載不會再跳回上一步囉！）")
+                    st.session_state.excel_output = generate_excel_master_dynamic(df_s, df_books_clean)
+                    st.success("🎉 對帳與排版完成！檔案已存入網頁快取中，下載任何檔案皆不會重置畫面！")
 
-            # 🌟 只要記憶體裡有檔案，就一直顯示下載按鈕
             if st.session_state.pdf_output and st.session_state.excel_output:
                 st.balloons()
                 col1, col2 = st.columns(2)
                 with col1:
                     st.download_button(
-                        label="📥 下載【家長通知單】(A4 自動縮放 PDF 版)", 
+                        label="📥 下載【家長通知單】(A4 彈性無框 PDF 版)", 
                         data=st.session_state.pdf_output, 
-                        file_name="全班通知單_一人一頁.pdf", 
+                        file_name="全班通知單_一人一頁_合併版.pdf", 
                         mime="application/pdf"
                     )
                 with col2:
                     st.download_button(
-                        label="📥 下載【導師對帳總表】(Excel 收費明細)", 
+                        label="📥 下載【導師對帳總表】(內含各書商獨立分頁 Excel)", 
                         data=st.session_state.excel_output, 
-                        file_name="導師總表_核對版.xlsx", 
+                        file_name="導師總表_多書商對帳版.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         
