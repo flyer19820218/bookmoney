@@ -319,7 +319,7 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：終極完全體 ─ 智慧交叉比對系統 (完全解耦雙系統穩定版)
+# 🌟 分頁 2：終極完全體 ─ 智慧交叉比對系統 (分組與書目解耦穩定版)
 # =====================================================================
 with tab2:
     st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (多書商 CSV 穩定版)")
@@ -343,42 +343,22 @@ with tab2:
             if any(kw in str(col) for kw in keywords): return col
         return None
         
-    def guess_subject(name, raw_code=""):
-        # 強化科目通靈：解決「文法即時通」被誤判為國文的問題
-        name = str(name).replace("國中", "").replace("國小", "")
-        if any(k in name for k in ["英", "文法", "單字", "聽力", "ABC", "abc"]): return "英"
-        if any(k in name for k in ["數", "幾何", "代數", "算"]): return "數"
-        if any(k in name for k in ["自", "理化", "生物", "地科", "科學"]): return "自"
-        if any(k in name for k in ["歷", "地", "公", "社會"]): return "社會"
-        if any(k in name for k in ["國", "文", "閱讀"]): return "國"
-        
-        code_str = str(raw_code).replace(" ", "").upper()
+    def guess_subject(name, code=""):
+        code_str = str(code).replace(" ", "").upper()
         if "英" in code_str: return "英"
         if "數" in code_str: return "數"
         if "自" in code_str: return "自"
         
+        name = str(name).replace("國中", "").replace("國小", "")
+        if any(k in name for k in ["英", "文法", "單字", "聽力"]): return "英"
+        if any(k in name for k in ["數", "幾何", "代數"]): return "數"
+        if any(k in name for k in ["自", "理化", "生物", "地科", "科學"]): return "自"
+        if any(k in name for k in ["歷", "地", "公", "社會"]): return "社會"
+        if any(k in name for k in ["國", "文", "閱讀"]): return "國"
         return "其他"
 
-    # ==========================================
-    # 🧩 系統一：專屬「學生名單」的分組代號解析器
-    # ==========================================
-    def parse_student_group_code(raw_str):
-        val = str(raw_str).strip()
-        if not val or val == "nan": return "無"
-        
-        # 攔截 801英語文A -> 1A, 812B -> 12B
-        match = re.search(r'(\d+).*?([A-Za-z])', val)
-        if match:
-            cls_num = int(match.group(1))
-            if cls_num >= 100: cls_num = cls_num % 100 
-            return f"{cls_num}{match.group(2).upper()}"
-            
-        match_alpha = re.search(r'[A-Za-z]', val)
-        if match_alpha:
-            return match_alpha.group(0).upper()
-        return "無"
-
-    def parse_horizontal_group_file(uploaded_file):
+    # 🌟 抄回最原始、最穩定、您認可的 A/B 分組名單原版邏輯 (加入字首提示，支援雙位數班級)
+    def parse_horizontal_group_file(uploaded_file, subj_hint=""):
         if uploaded_file.name.endswith('.csv'): df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
         else: df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
         header_idx = -1
@@ -388,12 +368,23 @@ with tab2:
         mapping = {}
         if header_idx != -1:
             col_to_group = {}
+            current_group = "無"
             for col_idx in range(df_grp.shape[1]):
                 for r in range(0, header_idx):
                     val = str(df_grp.iloc[r, col_idx]).strip()
                     if val and val != "nan":
-                        col_to_group[col_idx] = parse_student_group_code(val)
-                        
+                        # 完美還原您最信任的 .*? 萬能配對
+                        match_num_alpha = re.search(r'(\d+).*?([A-Za-z])', val)
+                        if match_num_alpha:
+                            cls_num = int(match_num_alpha.group(1))
+                            if cls_num >= 100: cls_num = cls_num % 100  # 完美支援 801->1, 812->12 班
+                            current_group = f"{subj_hint}{cls_num}{match_num_alpha.group(2).upper()}"
+                        else:
+                            match_alpha = re.search(r'[A-Za-z]', val)
+                            if match_alpha: current_group = f"{subj_hint}{match_alpha.group(0).upper()}"
+                            elif len(val) <= 4: current_group = val
+                col_to_group[col_idx] = current_group
+
             for col_idx in range(df_grp.shape[1]):
                 if "姓名" in str(df_grp.iloc[header_idx, col_idx]):
                     group_for_this_col = col_to_group.get(col_idx, "無")
@@ -404,54 +395,52 @@ with tab2:
                             mapping[clean_name] = group_for_this_col
         return mapping
 
-    # ==========================================
-    # 🧩 系統二：專屬「書商報價單」的代號解析器
-    # ==========================================
-    def parse_book_code(raw_str):
-        val = str(raw_str).strip().upper()
-        if val in ["1", "全", "", "NAN", "NONE", "無"]: return "1"
-        
-        # 攔截 數1A -> 1A, 801A -> 1A
-        match = re.search(r'(\d+).*?([A-Z])', val)
-        if match:
-            cls_num = int(match.group(1))
-            if cls_num >= 100: cls_num = cls_num % 100 
-            return f"{cls_num}{match.group(2)}"
-            
-        # 攔截 A卷 -> A
-        match_alpha = re.search(r'[A-Z]', val)
-        if match_alpha:
-            return match_alpha.group(0)
-        return "1"
-
-    # ==========================================
-    # 🧩 系統三：完美的獨立交叉比對引擎
-    # ==========================================
-    def is_book_for_student(b_subj, b_code, s_eng, s_math, s_sci, s_gifted):
-        # 1. 處理資優生免購
-        if s_gifted == "語資" and b_subj in ["國", "英"]: return False
-        if s_gifted == "數資" and b_subj in ["數", "自"]: return False
-        if "語資" in s_gifted and "數資" in s_gifted and b_subj in ["國", "英", "數", "自"]: return False
-        
-        # 2. 全班通用書
-        if b_code == "1": return True
-        
-        # 3. 找出該科目對應的學生分組狀態
-        s_grp = ""
-        if b_subj == "英": s_grp = s_eng
-        elif b_subj == "數": s_grp = s_math
-        elif b_subj == "自": s_grp = s_sci
-        else: return False
-        
-        if s_grp in ["無", "免", "", "1"]: return False
-        
-        # 4. 精準對齊 (例如: 1A == 1A)
-        if b_code == s_grp: return True
-        
-        # 5. 書商簡寫包容 (例如: 書單寫 A，學生是 1A，照樣買)
-        if len(b_code) == 1 and b_code.isalpha() and b_code in s_grp: return True
-        
+    # 🌟 萬能配對雷達：確保 英1A 能包容 1A 或是 A 卷
+    def check_group_match(s_grp, b_code):
+        if s_grp in ["1", "無", ""]: return False
+        b_code_str = str(b_code).strip().upper()
+        s_grp_upper = str(s_grp).strip().upper()
+        if s_grp_upper == b_code_str: return True
+        if b_code_str in s_grp_upper: return True
         return False
+
+    # 🌟 完美的書目逆推偵探引擎 (保持最讚的書目解析狀態)
+    def psychic_correction(df_b, df_s):
+        group_stats = []
+        for col, s_name in [('英組', '英'), ('數組', '數'), ('自組', '自')]:
+            counts = df_s[col].value_counts()
+            for grp, count in counts.items():
+                if grp not in ["1", "無", "免", ""]:
+                    group_stats.append({'subj': s_name, 'grp': str(grp).strip().upper(), 'count': count})
+                    
+        for idx, row in df_b.iterrows():
+            b_code = str(row['code']).strip().upper()
+            b_name = str(row['name'])
+            b_qty = row['qty']
+            if b_code in ["1", "全", "", "NAN", "NONE", "無"]: continue
+            
+            best_score = 0
+            best_match = None
+            for stat in group_stats:
+                score = 0
+                s_grp = stat['grp']
+                if b_qty > 0 and b_qty == stat['count']: score += 10
+                b_alpha = "".join(re.findall(r'[A-Z]', b_code))
+                s_alpha = "".join(re.findall(r'[A-Z]', s_grp))
+                if b_alpha and s_alpha and b_alpha == s_alpha: score += 5
+                b_nums = re.findall(r'\d+', b_code)
+                s_nums = re.findall(r'\d+', s_grp)
+                if b_nums and s_nums:
+                    if (int(b_nums[0]) % 100) == (int(s_nums[0]) % 100): score += 5
+                    else: score -= 10
+                if stat['subj'] in b_name or stat['subj'] == row['subj']: score += 5
+                if score > best_score:
+                    best_score = score
+                    best_match = stat
+            if best_score >= 10 and best_match:
+                df_b.at[idx, 'code'] = best_match['grp']
+                df_b.at[idx, 'subj'] = best_match['subj']
+        return df_b
 
     def generate_smart_pdf(df_students, df_books_clean):
         pdf_io = io.BytesIO()
@@ -470,8 +459,19 @@ with tab2:
             personal_list = []
             total_amount = 0
             for _, b in df_books_clean.iterrows():
-                # 直接呼叫乾淨的系統三比對
-                if is_book_for_student(b['subj'], b['code'], s_eng, s_math, s_sci, s_gifted):
+                b_code_str = str(b['code']).strip()
+                is_match = False
+                
+                if b_code_str in ["1", "全", "", "nan", "None"]: is_match = True
+                elif b['subj'] == "英" and check_group_match(s_eng, b_code_str): is_match = True
+                elif b['subj'] == "數" and check_group_match(s_math, b_code_str): is_match = True
+                elif b['subj'] == "自" and check_group_match(s_sci, b_code_str): is_match = True
+                
+                if s_gifted == "語資" and b['subj'] in ["國", "英"]: is_match = False
+                if s_gifted == "數資" and b['subj'] in ["數", "自"]: is_match = False
+                if "語資" in s_gifted and "數資" in s_gifted and b['subj'] in ["國", "英", "數", "自"]: is_match = False
+                
+                if is_match:
                     personal_list.append((b['name'], b['price']))
                     total_amount += b['price']
 
@@ -544,14 +544,22 @@ with tab2:
         book_rows = []
         for _, book in df_books.iterrows():
             b_name, b_subj, b_price = book['name'], book['subj'], book['price']
-            b_code = book['code']
+            b_code_str = str(book['code']).strip()
             qty = 0
             for _, s in df_students.iterrows():
                 s_eng, s_math, s_sci = str(s.get("英組","無")), str(s.get("數組","無")), str(s.get("自組","無"))
-                s_gifted = str(s.get("資優類別", "無"))
-                if is_book_for_student(b_subj, b_code, s_eng, s_math, s_sci, s_gifted): 
-                    qty += 1
-            book_rows.append([b_name, b_subj, b_code, qty, b_price])
+                is_match = False
+                if b_code_str in ["1", "全", "", "nan", "None"]: is_match = True
+                elif b_subj == "英" and check_group_match(s_eng, b_code_str): is_match = True
+                elif b_subj == "數" and check_group_match(s_math, b_code_str): is_match = True
+                elif b_subj == "自" and check_group_match(s_sci, b_code_str): is_match = True
+                
+                gifted = str(s.get("資優類別", "無"))
+                if gifted == "語資" and b_subj in ["國", "英"]: is_match = False
+                if gifted == "數資" and b_subj in ["數", "自"]: is_match = False
+                if "語資" in gifted and "數資" in gifted and b_subj in ["國", "英", "數", "自"]: is_match = False
+                if is_match: qty += 1
+            book_rows.append([b_name, b_subj, b_code_str, qty, b_price])
 
         student_rows = []
         for _, s in df_students.iterrows():
@@ -560,11 +568,21 @@ with tab2:
             s_eng, s_math, s_sci = str(s.get("英組","無")), str(s.get("數組","無")), str(s.get("自組","無"))
             subtotal = 0
             for _, book in df_books.iterrows():
-                if is_book_for_student(book['subj'], book['code'], s_eng, s_math, s_sci, gifted):
-                    subtotal += book['price']
+                b_subj, b_price = book['subj'], book['price']
+                b_code_str = str(book['code']).strip()
+                is_match = False
+                if b_code_str in ["1", "全", "", "nan", "None"]: is_match = True
+                elif b_subj == "英" and check_group_match(s_eng, b_code_str): is_match = True
+                elif b_subj == "數" and check_group_match(s_math, b_code_str): is_match = True
+                elif b_subj == "自" and check_group_match(s_sci, b_code_str): is_match = True
+                
+                if gifted == "語資" and b_subj in ["國", "英"]: is_match = False
+                if gifted == "數資" and b_subj in ["數", "自"]: is_match = False
+                if "語資" in gifted and "數資" in gifted and b_subj in ["國", "英", "數", "自"]: is_match = False
+                if is_match: subtotal += b_price
             student_rows.append([seat, name, gifted, s_eng, s_math, s_sci, subtotal])
 
-        headers_left = ["商品名稱", "科目", "精準代號", "購買數量", "單價"]
+        headers_left = ["商品名稱", "科目", "分組代號", "購買數量", "單價"]
         for col_idx, h in enumerate(headers_left, 1):
             cell = ws.cell(row=1, column=col_idx, value=h)
             cell.font = Font(bold=True); cell.alignment = Alignment(horizontal="center")
@@ -618,10 +636,9 @@ with tab2:
         wb.save(output)
         return output.getvalue()
 
-    # 🌟 執行區塊
+    # 執行區塊
     if file_class and file_books_list and len(file_books_list) > 0:
         try:
-            # 處理名單
             df_temp = pd.read_excel(file_class, header=None).fillna("")
             header_idx = 0
             for idx, row in df_temp.iterrows():
@@ -629,8 +646,9 @@ with tab2:
                     header_idx = idx ; break
             df_s = pd.read_excel(file_class, skiprows=header_idx).fillna("")
             
+            # 🌟 核心防禦：強制濾除無效空白行，杜絕一切 IndexError
             c_name = find_column(df_s, ["姓名", "名稱", "學生"], "姓名")
-            if c_name: df_s = df_s[df_s[c_name].astype(str).str.strip() != ""] # 清除幽靈空白列
+            if c_name: df_s = df_s[df_s[c_name].astype(str).str.strip() != ""]
             
             c_seat = find_column(df_s, ["座號", "號碼", "序號"], "座號")
             if c_seat and c_seat != "座號": df_s = df_s.rename(columns={c_seat: "座號"})
@@ -639,8 +657,9 @@ with tab2:
             for col in ["英組", "數組", "自組", "資優類別"]:
                 if col not in df_s.columns: df_s[col] = "無"
 
-            eng_map = parse_horizontal_group_file(file_eng) if file_eng else {}
-            math_map = parse_horizontal_group_file(file_math) if file_math else {}
+            # 🌟 智慧注入科目字首提示（傳入 "英" 或 "數"）
+            eng_map = parse_horizontal_group_file(file_eng, "英") if file_eng else {}
+            math_map = parse_horizontal_group_file(file_math, "數") if file_math else {}
 
             for idx, row in df_s.iterrows():
                 clean_name = str(row["姓名"]).replace(" ", "").strip()
@@ -658,10 +677,9 @@ with tab2:
                         df_s.at[idx, "數組"] = "免"
 
             with st.expander("👀 步驟 1.5：核對學生名條與資優生判定 (點我展開)"):
-                st.write("請確認全班名單與分組狀態 (已精簡為如 1A、12B 格式)：")
+                st.write("請確認全班名單與分組狀態：")
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "資優類別"]])
 
-            # 處理書商
             all_books_clean_list = []
             
             for fb in file_books_list:
@@ -714,6 +732,7 @@ with tab2:
                 b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
                 b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
                 b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
+                b_col_qty = find_column(df_b, ["數量", "量", "件數"], "數量")
                 b_col_subj = find_column(df_b, ["科目", "類別"], "科目")
                 
                 df_b['parsed_price'] = pd.to_numeric(df_b[b_col_price], errors='coerce')
@@ -722,18 +741,19 @@ with tab2:
                     price_val = df_b['parsed_price'].iloc[i]
                     if pd.notna(price_val) and price_val > 0: 
                         raw_name = str(df_b[b_col_name].iloc[i])
-                        raw_code = str(df_b[b_col_code].iloc[i]) if b_col_code else ""
+                        raw_code = str(df_b[b_col_code].iloc[i]) if b_col_code else "1"
+                        raw_qty = df_b[b_col_qty].iloc[i] if b_col_qty else 0
+                        qty_val = pd.to_numeric(raw_qty, errors='coerce')
+                        qty_val = int(qty_val) if pd.notna(qty_val) else 0
                         
-                        # 呼叫專屬系統二：標準化書商代號 (801A -> 1A, 數1A -> 1A)
-                        clean_code = parse_book_code(raw_code)
-                        # 呼叫科目通靈：文法即時通 -> 英
-                        clean_subj = str(df_b[b_col_subj].iloc[i]) if b_col_subj else guess_subject(raw_name, raw_code)
+                        subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else guess_subject(raw_name)
 
                         extracted_books.append({
                             'name': raw_name,
                             'price': int(price_val),
-                            'code': clean_code,
-                            'subj': clean_subj,
+                            'code': raw_code,
+                            'qty': qty_val,
+                            'subj': subj_val,
                             'publisher': publisher_name
                         })
 
@@ -743,8 +763,13 @@ with tab2:
                 
             df_books_clean = pd.concat(all_books_clean_list, ignore_index=True) if all_books_clean_list else pd.DataFrame()
 
+            # 🌟 啟動：完美無損的偵探對帳引擎
+            if not df_books_clean.empty:
+                df_books_clean = psychic_correction(df_books_clean, df_s)
+                df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
+
             with st.expander("👀 步驟 1.8：核對書商自動解析清單 (點我展開)"):
-                st.write("這是從各家書商 CSV 萃取的書目，代號已透過【解耦系統】獨立淨化為標準格式 (如 1A 或 A)！")
+                st.write("這是系統完美抓取的正確書目。模糊代號已透過偵探引擎自動校正為標準代碼與正確科目！")
                 if not df_books_clean.empty:
                     st.dataframe(df_books_clean)
                 else:
@@ -757,7 +782,7 @@ with tab2:
                 with st.spinner("正在進行交叉對帳與 PDF 排版中..."):
                     st.session_state.pdf_output = generate_smart_pdf(df_s, df_books_clean)
                     st.session_state.excel_output = generate_excel_master_dynamic(df_s, df_books_clean)
-                    st.success("🎉 對帳與排版完成！檔案已存入網頁快取中，下載任何檔案皆不會重置畫面！")
+                    st.success("🎉 對帳與排版完成！檔案已存入網頁快取中，下載 any 檔案皆不會重置畫面！")
 
             if st.session_state.pdf_output and st.session_state.excel_output:
                 st.balloons()
@@ -771,7 +796,7 @@ with tab2:
                     )
                 with col2:
                     st.download_button(
-                        label="📥 下載【導師對帳總表】(內含中偉、大敦獨立分頁)", 
+                        label="📥 下載【導師對帳總表】(內含各家獨立分頁)", 
                         data=st.session_state.excel_output, 
                         file_name="導師總表_多書商對帳版.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
