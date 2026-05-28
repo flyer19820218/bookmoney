@@ -319,7 +319,7 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：全新升級 ─ ReportLab PDF 智慧交叉比對產生器
+# 🌟 分頁 2：全新升級 ─ ReportLab PDF 智慧交叉比對產生器 (含視覺核對功能)
 # =====================================================================
 with tab2:
     st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (產出 PDF)")
@@ -332,18 +332,54 @@ with tab2:
         file_class = st.file_uploader("1. 班級總名單 (Excel 檔)", type=["xlsx", "xls"])
         file_books = st.file_uploader("2. 書商報價單 (CSV 或 Excel 檔)", type=["csv", "xlsx", "xls"])
     with col_b:
-        file_eng   = st.file_uploader("3. 英文分組名單 (CSV 或 Excel 檔)", type=["csv", "xlsx", "xls"])
-        file_math  = st.file_uploader("4. 數學分組名單 (CSV 或 Excel 檔)", type=["csv", "xlsx", "xls"])
+        file_eng   = st.file_uploader("3. 英文分組名單 (可選)", type=["csv", "xlsx", "xls"])
+        file_math  = st.file_uploader("4. 數學分組名單 (可選)", type=["csv", "xlsx", "xls"])
 
-    # 🌟 智慧欄位比對函數工具
+    # 🌟 內部工具：智慧欄位比對
     def find_column(df, keywords, default_name):
         for col in df.columns:
             if any(kw in str(col) for kw in keywords):
                 return col
-        return default_name
+        return None
+        
+    # 🌟 內部工具：智慧解析「並排式」分組名單 (透過姓名扣合)
+    def parse_horizontal_group_file(uploaded_file):
+        if uploaded_file.name.endswith('.csv'):
+            df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
+        else:
+            df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
+            
+        header_idx = -1
+        for idx, row in df_grp.iterrows():
+            if any("姓名" in str(v) for v in row.values):
+                header_idx = idx
+                break
+                
+        mapping = {}
+        if header_idx != -1:
+            group_row_idx = max(0, header_idx - 1)
+            current_group = "1"
+            
+            # 掃描每一欄，動態捕捉上方的 A/B/C 分組代號
+            for col_idx in range(df_grp.shape[1]):
+                val_above = str(df_grp.iloc[group_row_idx, col_idx]).strip()
+                if val_above and val_above != "nan":
+                    # 萃取英文大寫字母 (例如從 "801英語文A" 抓出 "A")
+                    match = re.search(r'[A-Za-z]', val_above)
+                    if match:
+                        current_group = match.group(0).upper()
+                    else:
+                        current_group = val_above
+
+                # 若此欄是「姓名」欄，就把底下的學生都貼上目前的標籤
+                if "姓名" in str(df_grp.iloc[header_idx, col_idx]):
+                    names = df_grp.iloc[header_idx+1:, col_idx].astype(str).str.strip()
+                    for name in names:
+                        if name and name != "nan":
+                            mapping[name] = current_group
+        return mapping
 
     def generate_reportlab_pdf(df_students, df_books_clean):
-        """利用 ReportLab 產出完美 A4 中文購書單 PDF (一人一頁)"""
         pdf_io = io.BytesIO()
         c = canvas.Canvas(pdf_io, pagesize=A4)
         width, height = A4
@@ -357,55 +393,32 @@ with tab2:
             s_sci = str(student.get("自組", "1")).strip()
             s_gifted = str(student.get("資優類別", "")).strip()
 
-            # 1. 建立校正後的個人書單
             personal_list = []
             total_amount = 0
-            
             for _, b in df_books_clean.iterrows():
-                b_name = b['name']
-                b_price = b['price']
-                b_code = b['code']
-                b_subj = b['subj']
-                
-                # 判斷學生的分組是否符合購書條件
                 is_match = False
-                if b_code in ["1", "全", "", "nan"]:
-                    is_match = True
-                elif b_subj == "英" and s_eng in b_code:
-                    is_match = True
-                elif b_subj == "數" and s_math in b_code:
-                    is_match = True
-                elif b_subj == "自" and s_sci in b_code:
-                    is_match = True
+                if b['code'] in ["1", "全", "", "nan"]: is_match = True
+                elif b['subj'] == "英" and s_eng in b['code']: is_match = True
+                elif b['subj'] == "數" and s_math in b['code']: is_match = True
+                elif b['subj'] == "自" and s_sci in b['code']: is_match = True
                 
-                # 資優生排除規則
-                if s_gifted == "語資" and b_subj in ["國", "英"]: is_match = False
-                if s_gifted == "數資" and b_subj in ["數", "自"]: is_match = False
+                if s_gifted == "語資" and b['subj'] in ["國", "英"]: is_match = False
+                if s_gifted == "數資" and b['subj'] in ["數", "自"]: is_match = False
                 
                 if is_match:
-                    personal_list.append((b_name, b_price))
-                    total_amount += b_price
+                    personal_list.append((b['name'], b['price']))
+                    total_amount += b['price']
 
-            # 2. 開始繪製該學生的 PDF 頁面
             c.setFont(pdf_font, 22)
             c.drawCentredString(width/2, height - 60, "學 期 各 項 費 用 通 知 單")
-            
-            # 學生基本資訊橫條
             c.setFont(pdf_font, 12)
             c.drawString(60, height - 100, f"座號：{seat}        姓名：{name}")
-            c.drawRightString(width - 60, height - 100, f"分組狀態：英({s_eng}) 數({s_math})")
-            c.setStrokeColorRGB(0, 0, 0)
-            c.setLineWidth(1.5)
+            c.drawRightString(width - 60, height - 100, f"狀態：英({s_eng}) 數({s_math})")
             c.line(60, height - 110, width - 60, height - 110)
-            
-            # 畫出明細表頭
             c.setFont(pdf_font, 11)
             c.drawString(70, height - 135, "項目 / 書籍名稱")
             c.drawRightString(width - 70, height - 135, "金額 (元)")
-            c.setLineWidth(0.5)
             c.line(60, height - 145, width - 60, height - 145)
-            
-            # 填入扣合分組後的實用明細
             y_pos = height - 170
             c.setFont(pdf_font, 10)
             if not personal_list:
@@ -413,22 +426,16 @@ with tab2:
                 y_pos -= 25
             else:
                 for b_name, price in personal_list:
-                    if y_pos < 180: # 防止書籍項目太多溢出頁面
-                        c.drawString(70, y_pos, "...項目過多未完...")
-                        break
+                    if y_pos < 180: break
                     c.drawString(70, y_pos, b_name)
                     c.drawRightString(width - 70, y_pos, f"$ {int(price)}")
                     y_pos -= 22
-            
-            # 計算總計線與金額
             c.line(60, y_pos + 10, width - 60, y_pos + 10)
             c.setFont(pdf_font, 13)
             c.drawString(70, y_pos - 10, "應繳總計金額：")
-            c.setFillColorRGB(0.8, 0, 0) # 紅色強調總金額
+            c.setFillColorRGB(0.8, 0, 0)
             c.drawRightString(width - 70, y_pos - 10, f"$ {int(total_amount)} 元")
-            c.setFillColorRGB(0, 0, 0) # 恢復黑色
-            
-            # 家長回條簽章區塊 (鎖死在頁面底部，方便導師收單)
+            c.setFillColorRGB(0, 0, 0)
             box_y = 60
             c.setStrokeColorRGB(0.4, 0.4, 0.4)
             c.roundRect(60, box_y, width - 120, 75, 6, stroke=1, fill=0)
@@ -437,113 +444,103 @@ with tab2:
             c.setFont(pdf_font, 10)
             c.drawString(75, box_y + 25, f"本人已確認上述 座號 {seat} {name} 之購書明細與金額無誤。")
             c.drawString(width - 200, box_y + 25, "家長簽名：__________________")
-            
-            # 完成此學生，換下一頁
             c.showPage()
-            
         c.save()
         pdf_io.seek(0)
         return pdf_io
 
-    st.divider()
-    st.markdown("#### 🚀 第二步：執行交叉智慧扣合與產出")
-
-    # 檢查必要檔案
+    # 🌟 執行區塊
     if file_class and file_books:
-        st.success("✅ 基礎名單與書商報價單已偵測到！")
-        
-        if st.button("🎯 執行全班 AB 分組精準對帳並產生 PDF", type="primary"):
-            with st.spinner("正在自動過濾書商表頭廢話，完美排版中..."):
-                try:
-                    # 1. 讀取班級總表
-                    df_s = pd.read_excel(file_class).fillna("")
-                    
-                    # 2. 🌟 【智慧防呆核心】自動偵測並定位書商表格的真實起點
-                    header_skip = 0
-                    df_b = None
-                    keywords_header = ["品名", "商品", "名稱", "書籍", "單價", "價格", "金額", "序號"]
-                    
-                    if file_books.name.endswith('.csv'):
-                        bytes_data = file_books.read()
-                        used_enc = 'utf-8'
-                        lines = []
-                        # 自動嘗試常見台灣中文字型編碼
-                        for enc in ['utf-8', 'big5', 'cp950', 'utf-8-sig']:
-                            try:
-                                lines = bytes_data.decode(enc).splitlines()
-                                used_enc = enc
-                                break
-                            except:
-                                continue
-                        
-                        # 尋找真正包含標題的行數
-                        for idx, line in enumerate(lines):
-                            if any(kw in line for kw in keywords_header):
-                                header_skip = idx
-                                break
-                        
-                        file_books.seek(0)
-                        try:
-                            df_b = pd.read_csv(file_books, skiprows=header_skip, encoding=used_enc).fillna("")
-                        except:
-                            file_books.seek(0)
-                            df_b = pd.read_csv(file_books, skiprows=header_skip, on_bad_lines='skip').fillna("")
-                    else:
-                        # 如果書商給的是 Excel 檔，也同樣動態掃描尋找標題列起點
-                        df_temp = pd.read_excel(file_books).fillna("")
-                        for idx, row in df_temp.iterrows():
-                            row_str = "".join([str(val) for val in row.values])
-                            if any(kw in row_str for kw in keywords_header):
-                                header_skip = idx + 1
-                                break
-                        file_books.seek(0)
-                        df_b = pd.read_excel(file_books, skiprows=header_skip).fillna("")
-                        
-                    # 3. 如果有上傳獨立的英文/數學組別 CSV，執行動態合併校正
-                    if file_eng:
-                        df_e = pd.read_csv(file_eng) if file_eng.name.endswith('.csv') else pd.read_excel(file_eng)
-                        c_seat = find_column(df_e, ["座號", "號碼"], "座號")
-                        c_group = find_column(df_e, ["組", "英文"], "英組")
-                        df_e_clean = df_e[[c_seat, c_group]].rename(columns={c_seat: "座號", c_group: "英組"})
-                        df_s = df_s.drop(columns=["英組"], errors="ignore").merge(df_e_clean, on="座號", how="left")
-                        
-                    if file_math:
-                        df_m = pd.read_csv(file_math) if file_math.name.endswith('.csv') else pd.read_excel(file_math)
-                        c_seat = find_column(df_m, ["座號", "號碼"], "座號")
-                        c_group = find_column(df_m, ["組", "數學"], "數組")
-                        df_m_clean = df_m[[c_seat, c_group]].rename(columns={c_seat: "座號", c_group: "數組"})
-                        df_s = df_s.drop(columns=["數組"], errors="ignore").merge(df_m_clean, on="座號", how="left")
+        try:
+            # 1. 智慧讀取原班名單 (自動跳過最上方「八年一班」這種廢話標題)
+            df_temp = pd.read_excel(file_class, header=None).fillna("")
+            header_idx = 0
+            for idx, row in df_temp.iterrows():
+                if any("姓名" in str(v) for v in row.values):
+                    header_idx = idx
+                    break
+            df_s = pd.read_excel(file_class, skiprows=header_idx).fillna("")
+            
+            c_seat = find_column(df_s, ["座號", "號碼", "序號"], "座號")
+            c_name = find_column(df_s, ["姓名", "名稱", "學生"], "姓名")
+            if c_seat and c_seat != "座號": df_s = df_s.rename(columns={c_seat: "座號"})
+            if c_name and c_name != "姓名": df_s = df_s.rename(columns={c_name: "姓名"})
+            
+            for col in ["英組", "數組", "自組", "資優類別"]:
+                if col not in df_s.columns: df_s[col] = "1"
 
-                    # 4. 統一書商名單的欄位標籤
-                    col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
-                    col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
-                    col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
-                    col_subj = find_column(df_b, ["科目", "類別"], "科目")
-                    
-                    df_books_clean = pd.DataFrame({
-                        'name': df_b[col_name],
-                        'price': pd.to_numeric(df_b[col_price], errors='coerce').fillna(0),
-                        'code': df_b[col_code].astype(str),
-                        'subj': df_b[col_subj].astype(str)
-                    })
+            # 🌟 智慧整合「並排式」分組名單
+            if file_eng:
+                eng_map = parse_horizontal_group_file(file_eng)
+                # 透過「姓名」去對應 A/B 分組
+                df_s["英組"] = df_s["姓名"].map(eng_map).fillna("1")
+                
+            if file_math:
+                math_map = parse_horizontal_group_file(file_math)
+                df_s["數組"] = df_s["姓名"].map(math_map).fillna("1")
 
-                    # 自動將歷史/地理/公民歸入社會科方便比對
-                    df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
+            with st.expander("👀 步驟 1.5：核對學生名條 (點我展開)", expanded=True):
+                st.write("這是系統抓到的前 5 位學生，請確認「座號」、「姓名」與「抓到的分組」是否正確：")
+                st.dataframe(df_s[["座號", "姓名", "英組", "數組"]].head())
 
-                    # 5. 生成完美的 ReportLab PDF
+            # 2. 智慧讀取書商報價單
+            header_skip = 0
+            keywords_header = ["品名", "商品", "名稱", "書籍", "單價", "價格", "金額", "序號"]
+            if file_books.name.endswith('.csv'):
+                bytes_data = file_books.read()
+                lines = []
+                used_enc = 'utf-8'
+                for enc in ['utf-8', 'big5', 'cp950', 'utf-8-sig']:
+                    try:
+                        lines = bytes_data.decode(enc).splitlines()
+                        used_enc = enc ; break
+                    except: continue
+                for idx, line in enumerate(lines):
+                    if any(kw in line for kw in keywords_header):
+                        header_skip = idx ; break
+                file_books.seek(0)
+                try: df_b = pd.read_csv(file_books, skiprows=header_skip, encoding=used_enc).fillna("")
+                except: 
+                    file_books.seek(0)
+                    df_b = pd.read_csv(file_books, skiprows=header_skip, on_bad_lines='skip').fillna("")
+            else:
+                df_temp2 = pd.read_excel(file_books, header=None).fillna("")
+                for idx, row in df_temp2.iterrows():
+                    row_str = "".join([str(val) for val in row.values])
+                    if any(kw in row_str for kw in keywords_header):
+                        header_skip = idx ; break
+                file_books.seek(0)
+                df_b = pd.read_excel(file_books, skiprows=header_skip).fillna("")
+
+            # 統一書商欄位
+            b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
+            b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
+            b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
+            b_col_subj = find_column(df_b, ["科目", "類別"], "科目")
+
+            df_books_clean = pd.DataFrame({
+                'name': df_b[b_col_name],
+                'price': pd.to_numeric(df_b[b_col_price], errors='coerce').fillna(0),
+                'code': df_b[b_col_code].astype(str),
+                'subj': df_b[b_col_subj].astype(str)
+            })
+            df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
+
+            with st.expander("👀 步驟 1.8：核對書商書籍清單 (點我展開)"):
+                st.write("這是系統抓到的書目，請確認「單價」與「分組代號(附記)」是否正確：")
+                st.dataframe(df_books_clean.head(10))
+
+            st.divider()
+            st.markdown("#### 🚀 第二步：執行交叉智慧扣合與產出")
+
+            if st.button("🎯 確認無誤，開始產出 PDF", type="primary"):
+                with st.spinner("正在進行交叉對帳與排版中..."):
                     pdf_result = generate_reportlab_pdf(df_s, df_books_clean)
-                    
                     st.balloons()
-                    st.success("🎉 交叉比對校正成功！已自動跳過書商抬頭廢話，並用學校人數精準產出。")
-                    
-                    st.download_button(
-                        label="📥 下載全班 A4 PDF 繳費通知單 (一人一張完美列印版)",
-                        data=pdf_result,
-                        file_name="全班購書單_校正完美版.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"❌ 比對程序發生異常：{e}")
-                    st.warning("提示：請確認您的名單或 CSV 檔案內容是否含有『座號』與『姓名』欄位標題。")
+                    st.download_button(label="📥 下載全班 A4 PDF 繳費通知單", data=pdf_result, file_name="全班購書單_核對版.pdf", mime="application/pdf")
+        
+        except Exception as e:
+            st.error(f"系統讀取發生錯誤：{e}")
+            st.info("提示：請檢查上傳的檔案格式是否正確。")
     else:
-        st.info("💡 請至少先上傳『1. 班級總名單』與『2. 書商報價單』，系統的智慧對帳按鈕就會解鎖出現喔！")
+        st.info("💡 請先上傳名單與報價單，核對預覽畫面就會出現喔！")
