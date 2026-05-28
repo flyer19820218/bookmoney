@@ -357,34 +357,23 @@ with tab2:
         if any(k in name for k in ["國", "文", "閱讀"]): return "國"
         return "其他"
 
-    # 🌟 徹底抄回當初成功的萬能 .*? 規則！並完美融入科目頭與雙位數班級支援
+    # 🌟 簡化且穩定的代碼標準化：處理 801A -> 1A, 812B -> 12B, 並強制加上科目
     def standardize_group_code(val, subj_hint=""):
-        val = str(val).strip().upper()
-        if val in ["1", "全", "", "NAN", "NONE", "無"]: return "1"
+        val = str(val).strip()
+        if val in ["1", "全", "", "nan", "None", "無"]: return "1"
         
-        # 1. 抄回最穩定的 .*? 跨字元掃描 (完美相容 801英語文A -> 英1A, 812B -> 12B)
-        match = re.search(r'(\d+).*?([A-Za-z])', val)
-        if match:
-            cls_num = int(match.group(1))
-            if cls_num >= 100: cls_num = cls_num % 100  # 支援 812 班 -> 12 班
-            letter = match.group(2).upper()
-            
-            # 自動判定科目頭字首
+        match_num_alpha = re.search(r'(\d+).*?([A-Za-z])', val)
+        if match_num_alpha:
+            cls_num = int(match_num_alpha.group(1))
+            if cls_num >= 100: cls_num = cls_num % 100 
+            letter = match_num_alpha.group(2).upper()
             prefix = subj_hint if subj_hint in ["英", "數", "自"] else ""
-            if "英" in val: prefix = "英"
-            elif "數" in val: prefix = "數"
-            elif "自" in val: prefix = "自"
-            
             return f"{prefix}{cls_num}{letter}"
             
-        # 2. 處理只有單純字母的模糊代號 (例如 A -> 英A 或 數A)
         match_alpha = re.search(r'[A-Za-z]', val)
         if match_alpha: 
             letter = match_alpha.group(0).upper()
             prefix = subj_hint if subj_hint in ["英", "數", "自"] else ""
-            if "英" in val: prefix = "英"
-            elif "數" in val: prefix = "數"
-            elif "自" in val: prefix = "自"
             return f"{prefix}{letter}" if prefix else letter
         
         return val
@@ -687,15 +676,18 @@ with tab2:
                     header_idx = idx ; break
             df_s = pd.read_excel(file_class, skiprows=header_idx).fillna("")
             
-            c_seat = find_column(df_s, ["座號", "號碼", "序號"], "座號")
+            # 🌟 核心防禦：清除沒有「姓名」的幽靈空白列，防止 IndexError
             c_name = find_column(df_s, ["姓名", "名稱", "學生"], "姓名")
+            if c_name:
+                df_s = df_s[df_s[c_name].astype(str).str.strip() != ""]
+            
+            c_seat = find_column(df_s, ["座號", "號碼", "序號"], "座號")
             if c_seat and c_seat != "座號": df_s = df_s.rename(columns={c_seat: "座號"})
             if c_name and c_name != "姓名": df_s = df_s.rename(columns={c_name: "姓名"})
             
             for col in ["英組", "數組", "自組", "資優類別"]:
                 if col not in df_s.columns: df_s[col] = "無"
 
-            # 智慧灌入科目提示
             eng_map = parse_horizontal_group_file(file_eng, "英") if file_eng else {}
             math_map = parse_horizontal_group_file(file_math, "數") if file_math else {}
 
@@ -802,7 +794,6 @@ with tab2:
                 
             df_books_clean = pd.concat(all_books_clean_list, ignore_index=True) if all_books_clean_list else pd.DataFrame()
 
-            # 🌟 偵探逆推引擎啟動
             if not df_books_clean.empty:
                 df_books_clean = psychic_correction(df_books_clean, df_s)
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
