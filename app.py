@@ -319,7 +319,7 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：全新升級 ─ 智慧交叉比對系統 (支援多書商合併、動態分頁對帳)
+# 🌟 分頁 2：全新升級 ─ 智慧交叉比對系統 (產出自動縮放 PDF + 三分頁書商對帳 Excel)
 # =====================================================================
 with tab2:
     st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (產出完美 PDF)")
@@ -330,17 +330,14 @@ with tab2:
     col_a, col_b = st.columns(2)
     with col_a:
         file_class = st.file_uploader("1. 班級總名單 (Excel 檔)", type=["xlsx", "xls"])
-        # 🌟 升級：支援一次上傳多家書商報價單
         file_books_list = st.file_uploader("2. 書商報價單 (可一次框選多份上傳)", type=["csv", "xlsx", "xls"], accept_multiple_files=True)
     with col_b:
         file_eng   = st.file_uploader("3. 英文分組名單 (可選)", type=["csv", "xlsx", "xls"])
         file_math  = st.file_uploader("4. 數學分組名單 (可選)", type=["csv", "xlsx", "xls"])
 
-    # 🌟 狀態記憶
     if 'pdf_output' not in st.session_state: st.session_state.pdf_output = None
     if 'excel_output' not in st.session_state: st.session_state.excel_output = None
 
-    # 內部工具：智慧欄位比對
     def find_column(df, keywords, default_name):
         for col in df.columns:
             if any(kw in str(col) for kw in keywords): return col
@@ -365,7 +362,7 @@ with tab2:
         mapping = {}
         if header_idx != -1:
             col_to_group = {}
-            current_group = "1"
+            current_group = "無"
             for col_idx in range(df_grp.shape[1]):
                 for r in range(0, header_idx):
                     val = str(df_grp.iloc[r, col_idx]).strip()
@@ -384,7 +381,6 @@ with tab2:
                             mapping[clean_name] = group_for_this_col
         return mapping
 
-    # 🌟 核心引擎：具備「自動縮放字體」功能的完美 A4 PDF 產生器
     def generate_smart_pdf(df_students, df_books_clean):
         pdf_io = io.BytesIO()
         c = canvas.Canvas(pdf_io, pagesize=A4)
@@ -394,19 +390,22 @@ with tab2:
         for _, student in df_students.iterrows():
             seat = str(student.get("座號", "")).split('.')[0]
             name = str(student.get("姓名", "")).strip()
-            s_eng = str(student.get("英組", "1")).strip()
-            s_math = str(student.get("數組", "1")).strip()
-            s_sci = str(student.get("自組", "1")).strip()
-            s_gifted = str(student.get("資優類別", "")).strip()
+            s_eng = str(student.get("英組", "無")).strip()
+            s_math = str(student.get("數組", "無")).strip()
+            s_sci = str(student.get("自組", "無")).strip()
+            s_gifted = str(student.get("資優類別", "無")).strip()
 
             personal_list = []
             total_amount = 0
             for _, b in df_books_clean.iterrows():
+                b_code_str = str(b['code']).strip()
                 is_match = False
-                if b['code'] in ["1", "全", "", "nan"]: is_match = True
-                elif b['subj'] == "英" and s_eng in b['code']: is_match = True
-                elif b['subj'] == "數" and s_math in b['code']: is_match = True
-                elif b['subj'] == "自" and s_sci in b['code']: is_match = True
+                
+                # 🌟 精準比對防護罩：徹底解決 "1" 被誤判包含在 "數1A" 的問題
+                if b_code_str in ["1", "全", "", "nan", "None"]: is_match = True
+                elif b['subj'] == "英" and s_eng not in ["1", "無", ""] and s_eng in b_code_str: is_match = True
+                elif b['subj'] == "數" and s_math not in ["1", "無", ""] and s_math in b_code_str: is_match = True
+                elif b['subj'] == "自" and s_sci not in ["1", "無", ""] and s_sci in b_code_str: is_match = True
                 
                 if s_gifted == "語資" and b['subj'] in ["國", "英"]: is_match = False
                 if s_gifted == "數資" and b['subj'] in ["數", "自"]: is_match = False
@@ -418,9 +417,15 @@ with tab2:
 
             c.setFont(pdf_font, 24)
             c.drawCentredString(width/2, height - 80, "學 期 各 項 費 用 通 知 單")
+            
+            # 顯示處理：讓版面乾淨，不要顯示 (1)，直接顯示 (無)
+            s_eng_display = s_eng if s_eng not in ["1", "無", ""] else "無"
+            s_math_display = s_math if s_math not in ["1", "無", ""] else "無"
+            s_gifted_display = s_gifted if s_gifted not in ["1", "無", ""] else "無"
+            
             c.setFont(pdf_font, 14)
             c.drawString(60, height - 130, f"座號：{seat}        姓名：{name}")
-            c.drawRightString(width - 60, height - 130, f"狀態：英({s_eng}) 數({s_math}) 資優({s_gifted if s_gifted != '1' else '無'})")
+            c.drawRightString(width - 60, height - 130, f"狀態：英({s_eng_display}) 數({s_math_display}) 資優({s_gifted_display})")
             
             c.setStrokeColorRGB(0, 0, 0)
             c.setLineWidth(2)
@@ -432,7 +437,6 @@ with tab2:
             c.setLineWidth(0.5)
             c.line(60, height - 180, width - 60, height - 180)
             
-            # 🌟 AI 自動彈性縮放排版
             start_y = height - 205
             end_y = 160 
             available_space = start_y - end_y
@@ -467,7 +471,6 @@ with tab2:
             c.drawRightString(width - 70, y_pos - 20, f"$ {int(total_amount)} 元")
             c.setFillColorRGB(0, 0, 0)
             
-            # 底部回條區 (無底線、無外框)
             box_y = 55
             c.setFont(pdf_font, 12)
             c.drawString(60, box_y + 55, "【家長簽章回條】")
@@ -480,47 +483,54 @@ with tab2:
         pdf_io.seek(0)
         return pdf_io
 
-    # 🌟 內部工具：填寫單一分頁的資料
     def fill_sheet_data(ws, sheet_title, df_students, df_books):
         ws.title = sheet_title
         book_rows = []
         for _, book in df_books.iterrows():
-            b_name, b_subj, b_code, b_price = book['name'], book['subj'], book['code'], book['price']
+            b_name, b_subj, b_price = book['name'], book['subj'], book['price']
+            b_code_str = str(book['code']).strip()
             qty = 0
             for _, s in df_students.iterrows():
+                s_eng, s_math, s_sci = str(s.get("英組","無")), str(s.get("數組","無")), str(s.get("自組","無"))
                 is_match = False
-                if b_code in ["1", "全", "", "nan"]: is_match = True
-                elif b_subj == "英" and str(s.get("英組","1")) in b_code: is_match = True
-                elif b_subj == "數" and str(s.get("數組","1")) in b_code: is_match = True
-                elif b_subj == "自" and str(s.get("自組","1")) in b_code: is_match = True
                 
-                gifted = str(s.get("資優類別", ""))
+                # 🌟 同步更新精準比對邏輯
+                if b_code_str in ["1", "全", "", "nan", "None"]: is_match = True
+                elif b_subj == "英" and s_eng not in ["1", "無", ""] and s_eng in b_code_str: is_match = True
+                elif b_subj == "數" and s_math not in ["1", "無", ""] and s_math in b_code_str: is_match = True
+                elif b_subj == "自" and s_sci not in ["1", "無", ""] and s_sci in b_code_str: is_match = True
+                
+                gifted = str(s.get("資優類別", "無"))
                 if gifted == "語資" and b_subj in ["國", "英"]: is_match = False
                 if gifted == "數資" and b_subj in ["數", "自"]: is_match = False
                 if "語資" in gifted and "數資" in gifted and b_subj in ["國", "英", "數", "自"]: is_match = False
                 
                 if is_match: qty += 1
-            book_rows.append([b_name, b_subj, b_code, qty, b_price])
+            book_rows.append([b_name, b_subj, b_code_str, qty, b_price])
 
         student_rows = []
         for _, s in df_students.iterrows():
             seat, name = str(s.get("座號", "")).split('.')[0], s.get("姓名", "")
-            gifted, eng, math, sci = s.get("資優類別", ""), s.get("英組", "1"), s.get("數組", "1"), s.get("自組", "1")
+            gifted = str(s.get("資優類別", "無"))
+            s_eng, s_math, s_sci = str(s.get("英組","無")), str(s.get("數組","無")), str(s.get("自組","無"))
             
             subtotal = 0
             for _, book in df_books.iterrows():
-                b_subj, b_code, b_price = book['subj'], book['code'], book['price']
+                b_subj, b_price = book['subj'], book['price']
+                b_code_str = str(book['code']).strip()
                 is_match = False
-                if b_code in ["1", "全", "", "nan"]: is_match = True
-                elif b_subj == "英" and str(eng) in b_code: is_match = True
-                elif b_subj == "數" and str(math) in b_code: is_match = True
-                elif b_subj == "自" and str(sci) in b_code: is_match = True
+                
+                if b_code_str in ["1", "全", "", "nan", "None"]: is_match = True
+                elif b_subj == "英" and s_eng not in ["1", "無", ""] and s_eng in b_code_str: is_match = True
+                elif b_subj == "數" and s_math not in ["1", "無", ""] and s_math in b_code_str: is_match = True
+                elif b_subj == "自" and s_sci not in ["1", "無", ""] and s_sci in b_code_str: is_match = True
                 
                 if gifted == "語資" and b_subj in ["國", "英"]: is_match = False
                 if gifted == "數資" and b_subj in ["數", "自"]: is_match = False
                 if "語資" in gifted and "數資" in gifted and b_subj in ["國", "英", "數", "自"]: is_match = False
+                
                 if is_match: subtotal += b_price
-            student_rows.append([seat, name, gifted, eng, math, sci, subtotal])
+            student_rows.append([seat, name, gifted, s_eng, s_math, s_sci, subtotal])
 
         headers_left = ["商品名稱", "科目", "分組代號", "購買數量", "單價"]
         for col_idx, h in enumerate(headers_left, 1):
@@ -562,28 +572,24 @@ with tab2:
         ws.column_dimensions['K'].width = 8 ; ws.column_dimensions['L'].width = 8
         ws.column_dimensions['M'].width = 12
 
-    # 🌟 核心引擎：多書商動態分頁 Excel 總表建構器
     def generate_excel_master_dynamic(df_students, df_books_clean):
         wb = Workbook()
         ws1 = wb.active
         fill_sheet_data(ws1, "班級收費總表(全)", df_students, df_books_clean)
         
-        # 依據抓到的書商名稱，動態建立專屬對帳分頁
         unique_publishers = df_books_clean['publisher'].unique()
         for pub in unique_publishers:
             df_pub = df_books_clean[df_books_clean['publisher'] == pub]
             ws_pub = wb.create_sheet()
-            safe_pub_name = str(pub).replace("/", "").replace("\\", "")[:12] # 防止 Excel 頁籤名稱過長
+            safe_pub_name = str(pub).replace("/", "").replace("\\", "")[:12]
             fill_sheet_data(ws_pub, f"{safe_pub_name}對帳表", df_students, df_pub)
             
         output = io.BytesIO()
         wb.save(output)
         return output.getvalue()
 
-    # 🌟 執行區塊
     if file_class and file_books_list and len(file_books_list) > 0:
         try:
-            # 1. 處理名單與分組
             df_temp = pd.read_excel(file_class, header=None).fillna("")
             header_idx = 0
             for idx, row in df_temp.iterrows():
@@ -595,8 +601,10 @@ with tab2:
             c_name = find_column(df_s, ["姓名", "名稱", "學生"], "姓名")
             if c_seat and c_seat != "座號": df_s = df_s.rename(columns={c_seat: "座號"})
             if c_name and c_name != "姓名": df_s = df_s.rename(columns={c_name: "姓名"})
+            
+            # 🌟 全部預設改為「無」
             for col in ["英組", "數組", "自組", "資優類別"]:
-                if col not in df_s.columns: df_s[col] = "1"
+                if col not in df_s.columns: df_s[col] = "無"
 
             eng_map = parse_horizontal_group_file(file_eng) if file_eng else {}
             math_map = parse_horizontal_group_file(file_math) if file_math else {}
@@ -612,7 +620,7 @@ with tab2:
                     if clean_name in math_map: df_s.at[idx, "數組"] = math_map[clean_name]
                     else:
                         current_gifted = str(df_s.at[idx, "資優類別"])
-                        if current_gifted == "1" or current_gifted == "": df_s.at[idx, "資優類別"] = "數資"
+                        if current_gifted in ["無", "", "1"]: df_s.at[idx, "資優類別"] = "數資"
                         elif current_gifted == "語資": df_s.at[idx, "資優類別"] = "語資/數資"
                         df_s.at[idx, "數組"] = "免"
 
@@ -620,15 +628,13 @@ with tab2:
                 st.write("請確認全班名單與分組狀態：")
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "資優類別"]])
 
-            # 2. 🌟 處理多份書商報價單
             all_books_clean_list = []
             
             for fb in file_books_list:
                 header_skip = 0
-                publisher_name = fb.name.split('.')[0] # 預設使用檔名
+                publisher_name = fb.name.split('.')[0] 
                 keywords_header = ["品名", "商品", "名稱", "書籍", "單價", "價格", "金額", "序號"]
                 
-                # 自動讀取並抓取頭部廢話中的「書商名稱」
                 if fb.name.endswith('.csv'):
                     bytes_data = fb.read()
                     lines = []
@@ -643,7 +649,6 @@ with tab2:
                         if any(kw in line for kw in keywords_header):
                             header_skip = idx ; break
                             
-                    # 向上尋找第一行有文字的當作書商名稱 (例如：中偉書局估價單)
                     for r in range(header_skip):
                         clean_line = lines[r].replace(',', '').strip()
                         if clean_line:
@@ -684,7 +689,7 @@ with tab2:
                     'price': pd.to_numeric(df_b[b_col_price], errors='coerce').fillna(0),
                     'code': df_b[b_col_code].astype(str),
                     'subj': subj_series,
-                    'publisher': publisher_name # 將抓到的書商名稱綁定到這本書
+                    'publisher': publisher_name
                 })
                 df_temp_clean['subj'] = df_temp_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
                 all_books_clean_list.append(df_temp_clean)
