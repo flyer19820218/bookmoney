@@ -323,7 +323,15 @@ with tab1:
 # =====================================================================
 with tab2:
     st.subheader("🖨️ 班級購書與費用對帳系統")
-    st.markdown("請上傳班級名單與書商 CSV / Excel 檔，系統將自動為您產出 PDF 通知單與對帳表。")
+    
+    # 🌟 將使用說明直接顯示在網頁最上方
+    st.info("""
+    **【系統使用說明】**
+    1. 請至「台中市教育雲端系統」下載 **班級名條** (若為有分組之年級，請一併下載英文/數學分組名條)。
+    2. 請向各家書商索取本次的 **報價單 CSV 或 Excel 檔**。
+    3. 依序上傳下方檔案，若有其他自訂收費項目，可於步驟二表格手動新增。
+    *(註：一年級免分組，僅需上傳「班級名單」與「書商報價單」即可，系統會自動產出全班明細)*
+    """)
 
     st.markdown("#### 📁 步驟一：上傳名單與報價單")
 
@@ -334,7 +342,7 @@ with tab2:
     with col_b:
         file_eng   = st.file_uploader("3. 英文分組名單 (可選)", type=["csv", "xlsx", "xls"])
         file_math  = st.file_uploader("4. 數學/自然分組名單 (可選)", type=["csv", "xlsx", "xls"])
-        st.caption("💡 提示：若為三年級名單，系統將自動連動數/自為同組。")
+        st.caption("💡 提示：系統若讀到 9 或 3 開頭的三年級名單，將自動連動數/自為同組。")
 
     st.markdown("#### ➕ 步驟二：新增其他收費 (選填)")
     st.write("若無其他收費請留空。填寫「分組代號」系統會自動結算人數 (全班收取請填 `1`)。")
@@ -390,7 +398,8 @@ with tab2:
         if match_alpha: return match_alpha.group(0).upper()
         return val
 
-    def parse_horizontal_group_file(uploaded_file):
+    # 🌟 一字不漏還原：完美處理 Excel 合併儲存格的繼承邏輯
+    def parse_horizontal_group_file(uploaded_file, subj_hint=""):
         if uploaded_file.name.endswith('.csv'): df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
         else: df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
         header_idx = -1
@@ -400,6 +409,7 @@ with tab2:
         mapping = {}
         if header_idx != -1:
             col_to_group = {}
+            current_group = "無"
             current_grade = 0
             for col_idx in range(df_grp.shape[1]):
                 for r in range(0, header_idx):
@@ -410,11 +420,13 @@ with tab2:
                             cls_num = int(match_num_alpha.group(1))
                             current_grade = cls_num // 100 
                             if cls_num >= 100: cls_num = cls_num % 100 
-                            col_to_group[col_idx] = (f"{cls_num}{match_num_alpha.group(2).upper()}", current_grade)
+                            current_group = f"{subj_hint}{cls_num}{match_num_alpha.group(2).upper()}"
                         else:
                             match_alpha = re.search(r'[A-Za-z]', val)
-                            if match_alpha: col_to_group[col_idx] = (match_alpha.group(0).upper(), 0)
-                            else: col_to_group[col_idx] = ("無", 0)
+                            if match_alpha: current_group = f"{subj_hint}{match_alpha.group(0).upper()}"
+                            elif len(val) <= 4: current_group = val
+                col_to_group[col_idx] = (current_group, current_grade)
+
             for col_idx in range(df_grp.shape[1]):
                 if "姓名" in str(df_grp.iloc[header_idx, col_idx]):
                     group_info = col_to_group.get(col_idx, ("無", 0))
@@ -514,7 +526,7 @@ with tab2:
             c.line(60, height - 145, width - 60, height - 145)
             
             c.setFont(pdf_font, 12)
-            c.drawString(70, height - 170, "書籍 / 項目名稱")
+            c.drawString(70, height - 170, "項目名稱")
             c.drawRightString(width - 70, height - 170, "金額 (元)")
             c.setLineWidth(0.5)
             c.line(60, height - 180, width - 60, height - 180)
@@ -526,7 +538,7 @@ with tab2:
             
             if item_count == 0:
                 c.setFont(pdf_font, 12)
-                c.drawString(70, start_y, "（本學期無選購書籍，免繳費）")
+                c.drawString(70, start_y, "（本學期無收費項目，免繳費）")
                 y_pos = start_y - 25
                 line_height = 20
             else:
@@ -662,8 +674,8 @@ with tab2:
             for col in ["英組", "數組", "自組", "資優類別"]:
                 if col not in df_s.columns: df_s[col] = "無"
 
-            eng_map = parse_horizontal_group_file(file_eng) if file_eng else {}
-            math_map = parse_horizontal_group_file(file_math) if file_math else {}
+            eng_map = parse_horizontal_group_file(file_eng, "英") if file_eng else {}
+            math_map = parse_horizontal_group_file(file_math, "數") if file_math else {}
 
             for idx, row in df_s.iterrows():
                 clean_name = str(row["姓名"]).replace(" ", "").strip()
@@ -690,7 +702,7 @@ with tab2:
                         df_s.at[idx, "自組"] = "免"
 
             with st.expander("👀 預覽：學生名單與分組狀態"):
-                st.write("請確認全班名單與分組判定結果：")
+                st.write("請確認名單與分組判定是否正確 (三年級數/自已設定為自動連動)：")
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "自組", "資優類別"]])
 
             all_books_clean_list = []
@@ -798,7 +810,7 @@ with tab2:
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
             with st.expander("👀 預覽：書目與收費清單"):
-                st.write("請確認系統讀取的書目與自訂收費金額：")
+                st.write("請確認系統讀取的項目與單價是否正確：")
                 if not df_books_clean.empty:
                     st.dataframe(df_books_clean)
                 else:
