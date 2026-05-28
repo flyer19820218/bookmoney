@@ -48,7 +48,7 @@ st.title("📚 班級各項費用與通知單系統")
 st.markdown("請選擇上方分頁切換您要使用的功能！")
 
 # 🌟 建立兩個分頁
-tab1, tab2 = st.tabs(["📝 雲端試算表自動版 (現有功能)", "🖨️ 懶人 PDF 產生器 (新功能測試)"])
+tab1, tab2 = st.tabs(["📝 雲端試算表自動版 (現有功能)", "🖨️ 懶人 PDF 產生器 (完全統一穩定版)"])
 
 # =====================================================================
 # 🌟 分頁 1：原本的雲端自動系統 (保持不變)
@@ -61,19 +61,19 @@ with tab1:
         1. 點擊進入 [校內購書公版範本 (短網址：https://reurl.cc/K2LgNe)](https://reurl.cc/K2LgNe)。
         2. 進去後，點選左上角的 **「檔案」 > 「建立副本」**。（一定要建立副本才能編輯喔！）
         3. **不想自己打字？讓 AI 幫你精準整理！**
-           手邊只有「紙本估價單」？直接拍照傳給 **Gemini 或 ChatGPT**，並**完整複製貼上以下這段指令給 AI**：
-           
-           > 你現在是一位專業、細心的「學校資料輸入員」。請將我上傳的書商估價單照片，精準地轉換成表格。
-           > 
-           > **【表格必須嚴格包含這 4 個欄位】：**
-           > 1. **商品名稱**：完整保留書名或材料費名稱。
-           > 2. **科目**：請根據書名自動分類為「國、英、數、自、社會、其他」這六類。（注意：歷史、地理、公民請一律歸類為「社會」；聯絡簿、桌墊、材料費請歸類為「其他」）。
-           > 3. **分組代號**：若圖片中無特別標示分組，請一律填入數字「1」。如果有分組，請直接填寫代號（如 5A、6B）。
-           > 4. **單價**：只填寫純數字，不要加上 $ 或 元。
-           > 
-           > **【嚴格限制】：** 請勿遺漏項目，不要加入任何問候語或廢話，你的回覆只能有「一個表格」。
-           
-           接著直接把 AI 做好的表格**全選複製、貼上**到您的 Google 試算表即可！
+            手邊只有「紙本估價單」？直接拍照傳給 **Gemini 或 ChatGPT**，並**完整複製貼上以下這段指令給 AI**：
+            
+            > 你現在是一位專業、細心的「學校資料輸入員」。請將我上傳的書商估價單照片，精準地轉換成表格。
+            > 
+            > **【表格必須嚴格包含這 4 個欄位】：**
+            > 1. **商品名稱**：完整保留書名或材料費名稱。
+            > 2. **科目**：請根據書名自動分類為「國、英、數、自、社會、其他」這六類。（注意：歷史、地理、公民請一律歸類為「社會」；聯絡簿、桌墊、材料費請歸類為「其他」）。
+            > 3. **分組代號**：若圖片中無特別標示分組，請一律填入數字「1」。如果有分組，請直接填寫代號（如 5A、6B）。
+            > 4. **單價**：只填寫純數字，不要加上 $ 或 元。
+            > 
+            > **【嚴格限制】：** 請勿遺漏項目，不要加入任何問候語或廢話，你的回覆只能有「一個表格」。
+            
+            接著直接把 AI 做好的表格**全選複製、貼上**到您的 Google 試算表即可！
         """)
 
     with st.expander("👉 第二步：開啟「共用」權限 (這步沒做會失敗喔！)", expanded=True):
@@ -319,19 +319,19 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：全新升級 ─ 終極 PDF 自動解析與智慧交叉比對系統
+# 🌟 分頁 2：全新升級 ─ 完全統一穩定版 (拔除 PDF，精準相容中偉、大敦 CSV/Excel)
 # =====================================================================
 with tab2:
-    st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (支援書商 PDF 直接上傳)")
-    st.markdown("直接上傳學校名單與**書商報價單 (支援 PDF、CSV、Excel)**，自動產出 PDF 通知單與各書商對帳表。")
+    st.subheader("🖨️ 學校名單 A/B 分組交叉比對系統 (多書商 CSV 穩定版)")
+    st.markdown("直接上傳學校名單與**各家書商原始 CSV / Excel 檔**，自動產出 PDF 通知單與各書商對帳表。")
 
     st.markdown("#### 📁 第一步：上傳學校名單與書商報價")
 
     col_a, col_b = st.columns(2)
     with col_a:
         file_class = st.file_uploader("1. 班級總名單 (Excel 檔)", type=["xlsx", "xls"])
-        # 🌟 支援 PDF 上傳
-        file_books_list = st.file_uploader("2. 書商報價單 (可框選多份 PDF 或 Excel)", type=["pdf", "csv", "xlsx", "xls"], accept_multiple_files=True)
+        # 🌟 修改：專注於 CSV 與 Excel 解析，徹底移除 PDF 上傳與相依性
+        file_books_list = st.file_uploader("2. 書商報價單 (可框選多份 CSV 或 Excel)", type=["csv", "xlsx", "xls"], accept_multiple_files=True)
     with col_b:
         file_eng   = st.file_uploader("3. 英文分組名單 (可選)", type=["csv", "xlsx", "xls"])
         file_math  = st.file_uploader("4. 數學分組名單 (可選)", type=["csv", "xlsx", "xls"])
@@ -602,6 +602,9 @@ with tab2:
     # 🌟 執行區塊
     if file_class and file_books_list and len(file_books_list) > 0:
         try:
+            # ==============================
+            # 1. 學生名單與分組解析
+            # ==============================
             df_temp = pd.read_excel(file_class, header=None).fillna("")
             header_idx = 0
             for idx, row in df_temp.iterrows():
@@ -639,132 +642,99 @@ with tab2:
                 st.write("請確認全班名單與分組狀態：")
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "資優類別"]])
 
+            # ==============================
+            # 2. 書商 CSV / Excel 智慧解析
+            # ==============================
             all_books_clean_list = []
             
             for fb in file_books_list:
                 publisher_name = fb.name.split('.')[0]
                 extracted_books = []
                 
-                # 🌟 啟動：專屬 PDF 由右至左解析雷達
-                if fb.name.endswith('.pdf'):
-                    try:
-                        import pdfplumber
-                        with pdfplumber.open(fb) as pdf:
-                            for page in pdf.pages:
-                                text = page.extract_text()
-                                if not text: continue
-                                
-                                # 嘗試抓取書商抬頭 (通常在第一頁最上面)
-                                if "中偉" in text: publisher_name = "中偉書局"
-                                elif "大敦" in text: publisher_name = "大敦書局"
-                                
-                                lines = text.split('\n')
-                                for line in lines:
-                                    # 尋找包含多個數字的資料行
-                                    tokens = line.strip().split()
-                                    if len(tokens) < 4: continue
-                                    
-                                    # 判斷最後一個元素是否為分組代號 (包含英文字母)
-                                    code = "1"
-                                    if re.search(r'[A-Za-z]', tokens[-1]):
-                                        code = tokens.pop()
-                                        
-                                    # 逆向解析：這時倒數最後一個是「總額」，倒數第二個絕對是「單價」！
-                                    try:
-                                        total_str = tokens.pop()
-                                        price_str = tokens.pop()
-                                        
-                                        # 清理剩下的字串當作書名 (去除前面的序號、日期、數量)
-                                        name_parts = []
-                                        for t in tokens:
-                                            if re.match(r'^\d+$', t) or re.match(r'^\d{2}/\d{2}$', t): continue
-                                            name_parts.append(t)
-                                            
-                                        book_name = " ".join(name_parts).replace("√", "").replace("V", "").strip()
-                                        if book_name and int(price_str) > 0:
-                                            extracted_books.append({
-                                                'name': book_name,
-                                                'price': int(price_str),
-                                                'code': code,
-                                                'subj': guess_subject(book_name),
-                                                'publisher': publisher_name
-                                            })
-                                    except:
-                                        continue
-                    except ImportError:
-                        st.error("⚠️ 系統偵測到未安裝 PDF 解析套件。請在 requirements.txt 中加入 `pdfplumber`。")
-                        
-                else:
-                    # 處理傳統 Excel / CSV
-                    header_skip = 0
-                    keywords_header = ["品名", "商品", "名稱", "書籍", "單價", "價格", "金額", "序號"]
-                    if fb.name.endswith('.csv'):
-                        bytes_data = fb.read()
-                        lines = []
-                        used_enc = 'utf-8'
-                        for enc in ['utf-8', 'big5', 'cp950', 'utf-8-sig']:
-                            try:
-                                lines = bytes_data.decode(enc).splitlines()
-                                used_enc = enc ; break
-                            except: continue
-                        for idx, line in enumerate(lines):
-                            if any(kw in line for kw in keywords_header):
-                                header_skip = idx ; break
-                        for r in range(header_skip):
-                            clean_line = lines[r].replace(',', '').strip()
-                            if clean_line:
-                                publisher_name = clean_line.replace("估價單", "").replace("報價單", "").strip()
-                                break
-                        fb.seek(0)
-                        try: df_b = pd.read_csv(fb, skiprows=header_skip, encoding=used_enc).fillna("")
-                        except: 
-                            fb.seek(0)
-                            df_b = pd.read_csv(fb, skiprows=header_skip, on_bad_lines='skip').fillna("")
-                    else:
-                        df_temp2 = pd.read_excel(fb, header=None).fillna("")
-                        for idx, row in df_temp2.iterrows():
-                            row_str = "".join([str(val) for val in row.values])
-                            if any(kw in row_str for kw in keywords_header):
-                                header_skip = idx ; break
-                        for r in range(header_skip):
-                            row_str = "".join([str(val) for val in df_temp2.iloc[r].values if str(val).strip() and str(val) != "nan"])
-                            if row_str:
-                                publisher_name = row_str.replace("估價單", "").replace("報價單", "").strip()
-                                break
-                        fb.seek(0)
-                        df_b = pd.read_excel(fb, skiprows=header_skip).fillna("")
-
-                    b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
-                    b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
-                    b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
-                    b_col_subj = find_column(df_b, ["科目", "類別"], "科目")
+                header_skip = 0
+                keywords_header = ["品名", "商品", "名稱", "單價", "價格", "金額"]
+                
+                if fb.name.endswith('.csv'):
+                    bytes_data = fb.read()
+                    lines = []
+                    used_enc = 'utf-8'
+                    for enc in ['utf-8', 'big5', 'cp950', 'utf-8-sig']:
+                        try:
+                            lines = bytes_data.decode(enc).splitlines()
+                            used_enc = enc ; break
+                        except: continue
                     
-                    if b_col_subj: subj_series = df_b[b_col_subj].astype(str)
-                    else: subj_series = df_b[b_col_name].apply(guess_subject)
+                    # 智慧尋找表頭
+                    for idx, line in enumerate(lines):
+                        if sum(1 for kw in keywords_header if kw in line) >= 2:
+                            header_skip = idx ; break
+                            
+                    # 自動從第一行抓取「書商名稱」
+                    if header_skip > 0 and len(lines) > 0:
+                        clean_first_line = lines[0].replace(',', '').strip()
+                        if clean_first_line:
+                            publisher_name = clean_first_line.replace("估價單", "").replace("報價單", "").strip()
+                            
+                    fb.seek(0)
+                    try: df_b = pd.read_csv(fb, skiprows=header_skip, encoding=used_enc).fillna("")
+                    except: 
+                        fb.seek(0)
+                        df_b = pd.read_csv(fb, skiprows=header_skip, on_bad_lines='skip').fillna("")
+                
+                else:
+                    df_temp2 = pd.read_excel(fb, header=None).fillna("")
+                    for idx, row in df_temp2.iterrows():
+                        row_str = "".join([str(val) for val in row.values])
+                        if sum(1 for kw in keywords_header if kw in row_str) >= 2:
+                            header_skip = idx ; break
+                            
+                    # 自動從第一行抓取「書商名稱」
+                    if header_skip > 0:
+                        first_row_str = "".join([str(val) for val in df_temp2.iloc[0].values if str(val).strip() and str(val) != "nan"])
+                        if first_row_str:
+                            publisher_name = first_row_str.replace("估價單", "").replace("報價單", "").strip()
+                            
+                    fb.seek(0)
+                    df_b = pd.read_excel(fb, skiprows=header_skip).fillna("")
 
-                    for i in range(len(df_b)):
+                # 對位與提取欄位
+                b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
+                b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
+                b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
+                b_col_subj = find_column(df_b, ["科目", "類別"], "科目")
+                
+                if b_col_subj: subj_series = df_b[b_col_subj].astype(str)
+                else: subj_series = df_b[b_col_name].apply(guess_subject)
+
+                # 防呆過濾機制：強制轉換單價，並剔除「合計」或非數字的廢話行
+                df_b['parsed_price'] = pd.to_numeric(df_b[b_col_price], errors='coerce')
+                
+                for i in range(len(df_b)):
+                    price_val = df_b['parsed_price'].iloc[i]
+                    if pd.notna(price_val) and price_val > 0:  # 確保價格存在且大於0
                         extracted_books.append({
                             'name': df_b[b_col_name].iloc[i],
-                            'price': pd.to_numeric(df_b[b_col_price].iloc[i], errors='coerce'),
+                            'price': int(price_val),
                             'code': str(df_b[b_col_code].iloc[i]),
                             'subj': subj_series.iloc[i],
                             'publisher': publisher_name
                         })
 
-                # 將此書商的書籍併入總表
+                # 將此書商的有效書籍併入總表
                 if extracted_books:
-                    df_temp_clean = pd.DataFrame(extracted_books).dropna(subset=['price'])
+                    df_temp_clean = pd.DataFrame(extracted_books)
                     df_temp_clean['subj'] = df_temp_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
                     all_books_clean_list.append(df_temp_clean)
                 
+            # 總和各書商清單
             df_books_clean = pd.concat(all_books_clean_list, ignore_index=True) if all_books_clean_list else pd.DataFrame()
 
             with st.expander("👀 步驟 1.8：核對書商自動解析清單 (點我展開)"):
-                st.write("這是系統從 PDF 或 CSV 自動抓取的所有書目與實收單價：")
+                st.write("這是系統從您上傳的各家 CSV/Excel 中完美抓取的正確書目與實收單價：")
                 if not df_books_clean.empty:
                     st.dataframe(df_books_clean)
                 else:
-                    st.warning("⚠️ 尚未成功讀取任何書目，請確認檔案格式或是否已安裝 pdfplumber。")
+                    st.warning("⚠️ 尚未成功讀取任何書目，請確認上傳的 CSV 或 Excel 格式是否包含品名與單價。")
 
             st.divider()
             st.markdown("#### 🚀 第二步：執行交叉智慧扣合")
@@ -782,12 +752,12 @@ with tab2:
                     st.download_button(
                         label="📥 下載【家長通知單】(A4 彈性無框 PDF 版)", 
                         data=st.session_state.pdf_output, 
-                        file_name="全班通知單_一人一頁_合併版.pdf", 
+                        file_name="全班通知單_一人一頁_雙書商合併版.pdf", 
                         mime="application/pdf"
                     )
                 with col2:
                     st.download_button(
-                        label="📥 下載【導師對帳總表】(內含各書商獨立分頁 Excel)", 
+                        label="📥 下載【導師對帳總表】(內含中偉、大敦獨立分頁)", 
                         data=st.session_state.excel_output, 
                         file_name="導師總表_多書商對帳版.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
