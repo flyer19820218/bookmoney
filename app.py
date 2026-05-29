@@ -319,21 +319,20 @@ with tab1:
 
 
 # =====================================================================
-# 🌟 分頁 2：班級購書與費用對帳系統
+# 分頁 2：班級購書與費用對帳系統 (正式專業版)
 # =====================================================================
 with tab2:
-    st.subheader("🖨️ 班級購書與費用對帳系統")
+    st.subheader("班級購書與費用對帳系統")
     
-    # 🌟 將使用說明直接顯示在網頁最上方
     st.info("""
     **【系統使用說明】**
-    1. 請至「台中市教育雲端系統」下載 **班級名條** (若為有分組之年級，請一併下載英文/數學分組名條)。
+    1. 請至「台中市教育雲端系統」下載 **班級名條** (若該年級有實施分組教學，請一併下載英文/數學分組名條)。
     2. 請向各家書商索取本次的 **報價單 CSV 或 Excel 檔**。
-    3. 依序上傳下方檔案，若有其他自訂收費項目，可於步驟二表格手動新增。
+    3. 依序上傳下方檔案，若有其他自訂收費項目，可於「步驟二」表格手動新增。
     *(註：一年級免分組，僅需上傳「班級名單」與「書商報價單」即可，系統會自動產出全班明細)*
     """)
 
-    st.markdown("#### 📁 步驟一：上傳名單與報價單")
+    st.markdown("#### 步驟一：上傳名單與報價單")
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -342,10 +341,10 @@ with tab2:
     with col_b:
         file_eng   = st.file_uploader("3. 英文分組名單 (可選)", type=["csv", "xlsx", "xls"])
         file_math  = st.file_uploader("4. 數學/自然分組名單 (可選)", type=["csv", "xlsx", "xls"])
-        st.caption("💡 提示：系統若讀到 9 或 3 開頭的三年級名單，將自動連動數/自為同組。")
+        st.caption("提示：系統若讀取到 9 或 3 開頭之三年級名單，將自動連動數學與自然科為同組。")
 
-    st.markdown("#### ➕ 步驟二：新增其他收費 (選填)")
-    st.write("若無其他收費請留空。填寫「分組代號」系統會自動結算人數 (全班收取請填 `1`)。")
+    st.markdown("#### 步驟二：新增其他收費 (選填)")
+    st.write("若無其他收費請留空。填寫「分組代號」系統將自動結算人數 (若為全班性收費請填 `1`)。")
     
     if 'custom_fees' not in st.session_state:
         st.session_state.custom_fees = pd.DataFrame([
@@ -372,7 +371,8 @@ with tab2:
             if any(kw in str(col) for kw in keywords): return col
         return None
         
-    def guess_subject(name, code=""):
+    def infer_subject(name, code=""):
+        # 依據書名或代號推斷科目分類
         name = str(name).replace("國中", "").replace("國小", "")
         if any(k in name for k in ["英", "文法", "單字", "聽力", "ABC", "abc"]): return "英"
         if any(k in name for k in ["數", "幾何", "代數", "算"]): return "數"
@@ -398,8 +398,8 @@ with tab2:
         if match_alpha: return match_alpha.group(0).upper()
         return val
 
-    # 🌟 一字不漏還原：完美處理 Excel 合併儲存格的繼承邏輯
     def parse_horizontal_group_file(uploaded_file, subj_hint=""):
+        # 處理名單之合併儲存格與分組代號繼承
         if uploaded_file.name.endswith('.csv'): df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
         else: df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
         header_idx = -1
@@ -453,7 +453,8 @@ with tab2:
             return True
         return False
 
-    def safe_psychic_correction(df_b, df_s):
+    def auto_correct_group_code(df_b, df_s):
+        # 依據名單人數自動校正書商提供的模糊分組代號
         counts = {
             '英': df_s[~df_s['英組'].isin(['無', '免', '1', ''])]['英組'].value_counts().to_dict(),
             '數': df_s[~df_s['數組'].isin(['無', '免', '1', ''])]['數組'].value_counts().to_dict(),
@@ -654,7 +655,7 @@ with tab2:
         wb.save(output)
         return output.getvalue()
 
-    # 🌟 執行區塊
+    # 執行系統主程式
     if file_class and file_books_list and len(file_books_list) > 0:
         try:
             df_temp = pd.read_excel(file_class, header=None).fillna("")
@@ -701,8 +702,8 @@ with tab2:
                         df_s.at[idx, "數組"] = "免"
                         df_s.at[idx, "自組"] = "免"
 
-            with st.expander("👀 預覽：學生名單與分組狀態"):
-                st.write("請確認名單與分組判定是否正確 (三年級數/自已設定為自動連動)：")
+            with st.expander("名單與分組狀態預覽"):
+                st.write("請確認全班名單與分組判定結果是否正確：")
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "自組", "資優類別"]])
 
             all_books_clean_list = []
@@ -770,7 +771,7 @@ with tab2:
                         qty_val = pd.to_numeric(raw_qty, errors='coerce')
                         qty_val = int(qty_val) if pd.notna(qty_val) else 0
                         
-                        subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else guess_subject(raw_name, raw_code)
+                        subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else infer_subject(raw_name, raw_code)
 
                         extracted_books.append({
                             'name': raw_name,
@@ -806,44 +807,57 @@ with tab2:
             df_books_clean = pd.concat(all_books_clean_list, ignore_index=True) if all_books_clean_list else pd.DataFrame()
 
             if not df_books_clean.empty:
-                df_books_clean = safe_psychic_correction(df_books_clean, df_s)
+                df_books_clean = auto_correct_group_code(df_books_clean, df_s)
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
-            with st.expander("👀 預覽：書目與收費清單"):
-                st.write("請確認系統讀取的項目與單價是否正確：")
+            st.divider()
+            st.markdown("#### 步驟三：移除不需購買之書籍 (若無請跳過)")
+            if not df_books_clean.empty:
+                all_book_names = df_books_clean['name'].unique().tolist()
+                remove_books = st.multiselect(
+                    "若書商提供之報價單包含不需購買之品項，請於此處選擇並剔除：",
+                    options=all_book_names,
+                    help="被選中的書籍將不會出現在最終的通知單與對帳表中。"
+                )
+                if remove_books:
+                    df_books_clean = df_books_clean[~df_books_clean['name'].isin(remove_books)]
+                    st.success(f"已成功剔除 {len(remove_books)} 項書籍。")
+
+            with st.expander("書目與收費項目預覽"):
+                st.write("系統已讀取以下書目與收費資料。若代號有缺漏，系統會自動嘗試依據人數與科目進行校正：")
                 if not df_books_clean.empty:
                     st.dataframe(df_books_clean)
                 else:
-                    st.warning("⚠️ 尚未成功讀取任何書目。")
+                    st.warning("尚未讀取到有效之書目資料，請確認檔案格式。")
 
             st.divider()
-            st.markdown("#### 🚀 步驟三：產生報表")
+            st.markdown("#### 步驟四：產生報表")
 
-            if not df_books_clean.empty and st.button("確認無誤，開始產出檔案", type="primary"):
+            if not df_books_clean.empty and st.button("確認無誤，開始產生報表", type="primary"):
                 with st.spinner("正在產生 PDF 與 Excel 檔案中..."):
                     st.session_state.pdf_output = generate_smart_pdf(df_s, df_books_clean)
                     st.session_state.excel_output = generate_excel_master_dynamic(df_s, df_books_clean)
-                    st.success("✅ 檔案產生完成！請點擊下方按鈕下載。")
+                    st.success("報表產生完成！請點擊下方按鈕下載。")
 
             if st.session_state.pdf_output and st.session_state.excel_output:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.download_button(
-                        label="📥 下載【家長通知單】(PDF 檔)", 
+                        label="下載【家長通知單】(PDF 檔)", 
                         data=st.session_state.pdf_output, 
-                        file_name="全班通知單_自動對帳版.pdf", 
+                        file_name="家長通知單_費用明細.pdf", 
                         mime="application/pdf"
                     )
                 with col2:
                     st.download_button(
-                        label="📥 下載【導師對帳總表】(Excel 檔)", 
+                        label="下載【導師對帳總表】(Excel 檔)", 
                         data=st.session_state.excel_output, 
-                        file_name="導師總表_收費明細版.xlsx", 
+                        file_name="導師對帳總表.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         
         except Exception as e:
             st.error(f"系統讀取發生錯誤：{e}")
-            st.info("提示：請檢查上傳的檔案格式是否正確。")
+            st.info("請檢查上傳的檔案格式是否正確。")
     else:
-        st.info("💡 請先依序上傳名單與報價單，預覽畫面將自動顯示。")
+        st.info("請先依序上傳名單與報價單，系統將自動顯示預覽畫面。")
