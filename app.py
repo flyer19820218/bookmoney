@@ -47,8 +47,8 @@ HAS_FONT = init_fonts()
 st.title("📚 班級各項費用與通知單系統")
 st.markdown("請選擇上方分頁切換您要使用的功能！")
 
-# 🌟 建立兩個分頁
-tab1, tab2 = st.tabs(["📝 雲端試算表自動版", "🖨️ 懶人 PDF 產生器"])
+# 🌟 建立三個分頁 (新增了退休金試算分頁)
+tab1, tab2, tab3 = st.tabs(["📝 雲端試算表自動版", "🖨️ 懶人 PDF 產生器", "💰 教師退休金試算"])
 
 # =====================================================================
 # 🌟 分頁 1：原本的雲端自動系統 (保持不變)
@@ -372,7 +372,6 @@ with tab2:
         return None
         
     def infer_subject(name, code=""):
-        # 依據書名或代號推斷科目分類
         name = str(name).replace("國中", "").replace("國小", "")
         if any(k in name for k in ["英", "文法", "單字", "聽力", "ABC", "abc"]): return "英"
         if any(k in name for k in ["數", "幾何", "代數", "算"]): return "數"
@@ -399,7 +398,6 @@ with tab2:
         return val
 
     def parse_horizontal_group_file(uploaded_file, subj_hint=""):
-        # 處理名單之合併儲存格與分組代號繼承
         if uploaded_file.name.endswith('.csv'): df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
         else: df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
         header_idx = -1
@@ -454,7 +452,6 @@ with tab2:
         return False
 
     def auto_correct_group_code(df_b, df_s):
-        # 依據名單人數自動校正書商提供的模糊分組代號
         counts = {
             '英': df_s[~df_s['英組'].isin(['無', '免', '1', ''])]['英組'].value_counts().to_dict(),
             '數': df_s[~df_s['數組'].isin(['無', '免', '1', ''])]['數組'].value_counts().to_dict(),
@@ -520,7 +517,7 @@ with tab2:
             s_gifted_display = s_gifted if s_gifted not in ["1", "無", "免"] else "無"
             
             c.setFont(pdf_font, 14)
-            c.drawString(60, height - 130, f"座號：{seat}        姓名：{name}")
+            c.drawString(60, height - 130, f"座號：{seat}      姓名：{name}")
             c.drawRightString(width - 60, height - 130, f"狀態：英({s_eng_display}) 數({s_math_display}) 資優({s_gifted_display})")
             c.setStrokeColorRGB(0, 0, 0)
             c.setLineWidth(2)
@@ -861,3 +858,72 @@ with tab2:
             st.info("請檢查上傳的檔案格式是否正確。")
     else:
         st.info("請先依序上傳名單與報價單，系統將自動顯示預覽畫面。")
+
+
+# =====================================================================
+# 🌟 新增分頁 3：教師退休金（月退俸）試算模組
+# =====================================================================
+
+# 定義薪級字典 (從圖檔解析的資料)
+SALARY_GRADES = {
+    680: 57220, 650: 55690, 625: 54160, 600: 52630, 575: 51100, 550: 49560, 
+    525: 48030, 500: 46500, 475: 44970, 450: 41900, 430: 40760, 410: 39610, 
+    390: 38460, 370: 37310, 350: 36160, 330: 35010, 310: 33860, 290: 32710, 
+    275: 31560, 260: 30410, 245: 29270, 230: 28120, 220: 27350, 210: 26580, 
+    200: 25820, 190: 25050
+}
+
+def calculate_replacement_ratio(years):
+    """計算所得替代率"""
+    if years < 15: return 0.0
+    elif years == 15: return 0.39
+    elif 15 < years <= 35: return 0.39 + (years - 15) * 0.015
+    elif 35 < years <= 40: return 0.69 + (years - 35) * 0.005
+    else: return 0.715
+
+with tab3:
+    st.header("📊 教師退休金（月退俸）試算模組")
+    
+    st.info("💡 財務評估原則：本試算依據現行公式得出，僅提供最保守之基準參考，不計入未來法規變動或通膨等外部因素。")
+
+    st.markdown("### 1. 基本資料輸入")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        years = st.number_input("教學年資（年）", min_value=1, max_value=50, value=25, step=1, key="pension_years")
+    
+    with col2:
+        input_method = st.radio("最後15年平均本俸設定方式", ["從薪級表選擇 (自動帶入)", "自行手動輸入"], key="pension_method")
+
+    if input_method == "從薪級表選擇 (自動帶入)":
+        selected_grade = st.selectbox(
+            "請選擇薪級（最低從 190 起算）", 
+            options=list(SALARY_GRADES.keys()), 
+            index=list(SALARY_GRADES.keys()).index(600)
+        )
+        avg_base_salary = SALARY_GRADES[selected_grade]
+        st.write(f"**對應薪額：** {avg_base_salary:,} 元")
+    else:
+        avg_base_salary = st.number_input(
+            "請輸入最後15年平均本俸（元）", 
+            min_value=25050, 
+            value=52630, 
+            step=1000,
+            key="pension_salary"
+        )
+
+    st.divider()
+    st.markdown("### 2. 試算結果")
+
+    if years < 15:
+        st.warning("⚠️ 依據規定，年資需滿 15 年始得請領月退俸。")
+    else:
+        ratio = calculate_replacement_ratio(years)
+        monthly_pension = avg_base_salary * 2 * ratio
+
+        st.markdown(f"""
+        - **所得替代率：** {ratio * 100:.1f} %
+        - **計算公式：** {avg_base_salary:,} × 2 × {ratio:.3f}
+        """)
+        
+        st.metric(label="預估月退俸金額", value=f"NT$ {int(monthly_pension):,}")
