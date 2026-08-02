@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>公教人員退休金保守試算系統</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        h2 {
+            text-align: center;
+            color: #2c3e50;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #34495e;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background-color: #2980b9;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #21618c;
+        }
+        .result-box {
+            margin-top: 25px;
+            padding: 20px;
+            background-color: #fdfefe;
+            border: 1px solid #d5dbdb;
+            border-left: 6px solid #e74c3c;
+            border-radius: 6px;
+            display: none; /* 預設隱藏，計算後顯示 */
+        }
+        .result-value {
+            font-size: 26px;
+            font-weight: bold;
+            color: #c0392b;
+            display: block;
+            margin-top: 5px;
+        }
+        .objective-warning {
+            font-size: 13px;
+            color: #7f8c8d;
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px dashed #bdc3c7;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>退休金保守試算 (月退模型)</h2>
+    
+    <div class="form-group">
+        <label for="baseSalary">最後在職同等級本薪 (元)</label>
+        <!-- 預設帶入常見的薪額數值 -->
+        <input type="number" id="baseSalary" value="47080" step="100">
+    </div>
+
+    <div class="form-group">
+        <label for="years">任職年資 (年)</label>
+        <!-- 預設帶入 20 年作為起始計算基準 -->
+        <input type="number" id="years" value="20" min="1" max="40">
+    </div>
+
+    <button onclick="calculatePension()">執行保守試算</button>
+
+    <div id="resultBox" class="result-box">
+        <div id="resultContent"></div>
+    </div>
+</div>
+
+<script>
+    function calculatePension() {
+        const baseSalary = parseInt(document.getElementById('baseSalary').value);
+        const years = parseInt(document.getElementById('years').value);
+        const resultBox = document.getElementById('resultBox');
+        const resultContent = document.getElementById('resultContent');
+
+        if (isNaN(baseSalary) || isNaN(years)) {
+            alert('請輸入有效的數值');
+            return;
+        }
+
+        // --- 核心演算法：嚴格保守估計模型 ---
+        // 依照年改精神，設定較嚴格的所得替代率。
+        // 假設：15年約佔 30%，之後每增 1 年加 1.5%。
+        let replacementRate = 0;
+        
+        if (years >= 15) {
+            replacementRate = 0.30 + ((years - 15) * 0.015);
+            // 設立嚴格的替代率天花板 (60%)
+            if (replacementRate > 0.60) {
+                replacementRate = 0.60;
+            }
+        }
+
+        // 月退計算公式：本薪 x 2 x 所得替代率
+        const monthlyPension = baseSalary * 2 * replacementRate;
+
+        // 顯示結果與客觀風險提示
+        resultBox.style.display = 'block';
+        
+        if (years < 15) {
+            resultContent.innerHTML = '<p style="color:#c0392b; font-weight:bold;">年資未滿 15 年，依規定僅能請領一次退休金，無法請領月退休金。</p>';
+        } else {
+            resultContent.innerHTML = `
+                <div>預估所得替代率上限：<strong>${(replacementRate * 100).toFixed(1)}%</strong></div>
+                <div>保守估計月退休金：<span class="result-value">${Math.round(monthlyPension).toLocaleString()} 元</span></div>
+                <div class="objective-warning">
+                    <strong>【客觀風險評估提示】</strong><br>
+                    此試算採用最保守之替代率模型進行推估，未計入未來可能之通膨對購買力的削弱，亦未包含公保養老給付。實際請領金額將隨法規與基金撥補狀況浮動，請以此低標數據作為未來現金流規劃的安全底線。
+                </div>
+            `;
+        }
+    }
+</script>
+
+</body>
+</html>
