@@ -945,4 +945,3 @@ elif page == "退休金":
         """)
         
         st.metric(label="預估月退俸金額", value=f"NT$ {int(monthly_pension):,}")
-```eof
