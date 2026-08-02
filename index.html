@@ -3,155 +3,521 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>公教人員退休金保守試算系統</title>
+    <title>教師退休金客觀試算系統 (含減額早退版)</title>
     <style>
+        /* 護眼模式全域設定 */
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f4f7f6;
-            color: #333;
+            font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang TC', '微軟正黑體', sans-serif;
+            background-color: #181a1b;
+            color: #e8e6e3;
             line-height: 1.6;
-            padding: 20px;
+            padding: 30px 20px;
+            margin: 0;
             display: flex;
             justify-content: center;
         }
-        .container {
+        
+        .layout-wrapper {
+            display: flex;
+            gap: 30px;
             width: 100%;
-            max-width: 500px;
-            background: #fff;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            max-width: 1200px;
+            align-items: flex-start;
         }
+
+        .left-panel {
+            flex: 1;
+            background: #242526;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            border: 1px solid #3a3e41;
+            position: sticky;
+            top: 30px;
+        }
+
+        .right-panel {
+            flex: 1.2;
+            display: flex;
+            gap: 20px;
+            background: #242526;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            border: 1px solid #3a3e41;
+        }
+
         h2 {
             text-align: center;
-            color: #2c3e50;
-            border-bottom: 2px solid #ecf0f1;
-            padding-bottom: 10px;
+            color: #6fbaff;
+            margin-top: 0;
+            margin-bottom: 5px;
+            font-size: 24px;
+            letter-spacing: 1px;
         }
+        
+        /* 製表日期標籤 */
+        .date-badge {
+            text-align: center;
+            font-size: 13px;
+            color: #9ca3af;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #3a3e41;
+        }
+
         .form-group {
             margin-bottom: 20px;
         }
         label {
             display: block;
-            font-weight: bold;
+            font-weight: 600;
             margin-bottom: 8px;
-            color: #34495e;
+            color: #b0b3b8;
+            font-size: 15px;
         }
-        input[type="number"] {
+        select, input[type="number"] {
             width: 100%;
-            padding: 10px;
-            border: 1px solid #ccc;
+            padding: 12px 15px;
+            border: 1px solid #4a4d50;
             border-radius: 6px;
             box-sizing: border-box;
             font-size: 16px;
+            color: #e8e6e3;
+            background-color: #181a1b;
+            transition: border-color 0.2s;
         }
+        select:focus, input[type="number"]:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+        }
+
+        /* 隱藏的進階選項區塊 */
+        .sub-fields {
+            background: #1a2a35;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #6fbaff;
+            margin-top: -10px;
+            margin-bottom: 20px;
+        }
+
         button {
             width: 100%;
-            padding: 14px;
-            background-color: #2980b9;
+            padding: 16px;
+            background-color: #2a73a3;
             color: white;
             border: none;
             border-radius: 6px;
-            font-size: 16px;
+            font-size: 18px;
             font-weight: bold;
+            letter-spacing: 2px;
             cursor: pointer;
             transition: background-color 0.3s;
+            margin-top: 10px;
         }
         button:hover {
-            background-color: #21618c;
+            background-color: #1f577d;
         }
+        
         .result-box {
-            margin-top: 25px;
-            padding: 20px;
-            background-color: #fdfefe;
-            border: 1px solid #d5dbdb;
-            border-left: 6px solid #e74c3c;
+            margin-top: 30px;
+            padding: 25px;
+            background-color: #1e2022;
+            border: 1px solid #3a3e41;
+            border-left: 6px solid #2a73a3;
             border-radius: 6px;
-            display: none; /* 預設隱藏，計算後顯示 */
+            display: none;
         }
-        .result-value {
-            font-size: 26px;
+        .result-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 15px;
+            border-bottom: 1px dashed #4a4d50;
+            padding-bottom: 8px;
+            color: #d1d5db;
+        }
+        .result-row:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+        .final-pension {
+            font-size: 28px;
             font-weight: bold;
-            color: #c0392b;
+            color: #e74c3c;
+            text-align: right;
+            margin-top: 15px;
             display: block;
-            margin-top: 5px;
         }
         .objective-warning {
             font-size: 13px;
-            color: #7f8c8d;
+            color: #9ca3af;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #4a4d50;
+            text-align: justify;
+        }
+        
+        .trajectory-log {
             margin-top: 15px;
-            padding-top: 10px;
-            border-top: 1px dashed #bdc3c7;
+            padding: 10px;
+            background: #181a1b;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #9ca3af;
+            height: 120px;
+            overflow-y: auto;
+            border: 1px solid #3a3e41;
+            line-height: 1.8;
+        }
+
+        .table-container {
+            flex: 1;
+            max-height: 85vh;
+            overflow-y: auto;
+            border: 1px solid #3a3e41;
+            border-radius: 6px;
+            background-color: #1e2022;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 12px 10px;
+            text-align: center;
+            border-bottom: 1px solid #3a3e41;
+        }
+        th {
+            background-color: #2a2d2f;
+            color: #6fbaff;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            font-weight: bold;
+            box-shadow: 0 1px 0 #3a3e41;
+        }
+        tr:nth-child(even) { background-color: #242526; }
+        tr:hover { background-color: #323538; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #181a1b; }
+        ::-webkit-scrollbar-thumb { background: #4a4d50; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #5a5d60; }
+
+        @media (max-width: 900px) {
+            .layout-wrapper { flex-direction: column; }
+            .left-panel, .right-panel { width: 100%; box-sizing: border-box; position: static; }
         }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>退休金保守試算 (月退模型)</h2>
-    
-    <div class="form-group">
-        <label for="baseSalary">最後在職同等級本薪 (元)</label>
-        <!-- 預設帶入常見的薪額數值 -->
-        <input type="number" id="baseSalary" value="47080" step="100">
+<div class="layout-wrapper">
+    <!-- 左欄：輸入與結果區 -->
+    <div class="left-panel">
+        <h2>教師退休金客觀試算</h2>
+        <div class="date-badge">資料基準日：2026.08.02</div>
+        
+        <div class="form-group">
+            <label for="startPoint">教師起敘俸點</label>
+            <select id="startPoint">
+                <option value="190">190 (學士起敘)</option>
+                <option value="245" selected>245 (碩士起敘)</option>
+                <option value="330">330 (博士起敘)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="midCareerDegree">中途進修提敘 (跳級設定)</label>
+            <select id="midCareerDegree" onchange="toggleMidCareerFields()">
+                <option value="none">無 (維持起敘學歷晉級)</option>
+                <option value="master">單次提敘：中途取得「碩士」學位</option>
+                <option value="phd">單次提敘：中途取得「博士」學位</option>
+                <option value="dual">雙重進修：先取得「碩士」，再取得「博士」</option>
+            </select>
+        </div>
+        
+        <div id="singleGradGroup" class="sub-fields" style="display: none;">
+            <label for="gradYear">取得該學位是任職的「第幾年」？</label>
+            <input type="number" id="gradYear" value="5" min="1" max="40">
+        </div>
+        
+        <div id="dualGradGroup" class="sub-fields" style="display: none;">
+            <label for="gradYearMaster">取得「碩士」是任職的第幾年？</label>
+            <input type="number" id="gradYearMaster" value="5" min="1" max="40" style="margin-bottom: 15px;">
+            <label for="gradYearPhd">取得「博士」是任職的第幾年？</label>
+            <input type="number" id="gradYearPhd" value="12" min="1" max="40">
+        </div>
+
+        <div class="form-group">
+            <label for="retirePoint">預估退休時最高俸點</label>
+            <select id="retirePoint">
+                <option value="600">600</option>
+                <option value="625">625 (學士天花板)</option>
+                <option value="650" selected>650 (碩士天花板)</option>
+                <option value="680">680 (博士天花板)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="years">預計任職總年資 (年)</label>
+            <input type="number" id="years" value="25" min="15" max="40">
+        </div>
+
+        <!-- 新增：提前退休選項 -->
+        <div class="form-group">
+            <label for="earlyRetire">申請減額月退休金 (提前年數)</label>
+            <select id="earlyRetire">
+                <option value="0" selected>無 (正常退休 / 達法定年齡)</option>
+                <option value="1">提前 1 年 (減額 4%)</option>
+                <option value="2">提前 2 年 (減額 8%)</option>
+                <option value="3">提前 3 年 (減額 12%)</option>
+                <option value="4">提前 4 年 (減額 16%)</option>
+                <option value="5">提前 5 年 (減額 20%)</option>
+            </select>
+        </div>
+
+        <button onclick="calculatePension()">執行保守試算</button>
+
+        <div id="resultBox" class="result-box">
+            <div id="resultContent"></div>
+            <div id="trajectoryLog" class="trajectory-log"></div>
+        </div>
     </div>
 
-    <div class="form-group">
-        <label for="years">任職年資 (年)</label>
-        <!-- 預設帶入 20 年作為起始計算基準 -->
-        <input type="number" id="years" value="20" min="1" max="40">
-    </div>
-
-    <button onclick="calculatePension()">執行保守試算</button>
-
-    <div id="resultBox" class="result-box">
-        <div id="resultContent"></div>
+    <!-- 右欄：完整表格展示區 -->
+    <div class="right-panel">
+        <div class="table-container">
+            <table id="salaryTable">
+                <thead>
+                    <tr><th>教師俸點</th><th>本俸 (元)</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="table-container">
+            <table id="ratioTable">
+                <thead>
+                    <tr><th>任職年資</th><th>所得替代率</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
     </div>
 </div>
 
 <script>
-    function calculatePension() {
-        const baseSalary = parseInt(document.getElementById('baseSalary').value);
-        const years = parseInt(document.getElementById('years').value);
-        const resultBox = document.getElementById('resultBox');
-        const resultContent = document.getElementById('resultContent');
+    const salaryData = {
+        190: 25050, 200: 25820, 210: 26580, 220: 27350, 230: 28120,
+        245: 29270, 260: 30410, 275: 31560, 290: 32710, 310: 33860,
+        330: 35010, 350: 36160, 370: 37310, 390: 38460, 410: 39610,
+        430: 40760, 450: 41900, 475: 44970, 500: 46500, 525: 48030,
+        550: 49560, 575: 51100, 600: 52630, 625: 54160, 650: 55690,
+        680: 57220
+    };
+    const pointLevels = Object.keys(salaryData).map(Number).sort((a,b) => a - b);
 
-        if (isNaN(baseSalary) || isNaN(years)) {
-            alert('請輸入有效的數值');
-            return;
+    const replacementRatios = {
+        15: 0.390, 16: 0.405, 17: 0.420, 18: 0.435, 19: 0.450,
+        20: 0.465, 21: 0.480, 22: 0.495, 23: 0.510, 24: 0.525,
+        25: 0.540, 26: 0.555, 27: 0.570, 28: 0.585, 29: 0.600,
+        30: 0.615, 31: 0.630, 32: 0.645, 33: 0.660, 34: 0.675,
+        35: 0.690, 36: 0.695, 37: 0.700, 38: 0.705, 39: 0.710,
+        40: 0.715
+    };
+
+    const maxPointsByEdu = {
+        190: 625,
+        245: 650,
+        330: 680
+    };
+
+    window.onload = function() {
+        const salaryTbody = document.querySelector('#salaryTable tbody');
+        const ratioTbody = document.querySelector('#ratioTable tbody');
+        for (let point of pointLevels) {
+            salaryTbody.innerHTML += `<tr><td>${point}</td><td>${salaryData[point].toLocaleString()}</td></tr>`;
         }
+        for (let year = 15; year <= 40; year++) {
+            ratioTbody.innerHTML += `<tr><td>${year} 年</td><td>${(replacementRatios[year] * 100).toFixed(1)}%</td></tr>`;
+        }
+    };
 
-        // --- 核心演算法：嚴格保守估計模型 ---
-        // 依照年改精神，設定較嚴格的所得替代率。
-        // 假設：15年約佔 30%，之後每增 1 年加 1.5%。
-        let replacementRate = 0;
+    function toggleMidCareerFields() {
+        const midDegree = document.getElementById('midCareerDegree').value;
+        const singleGroup = document.getElementById('singleGradGroup');
+        const dualGroup = document.getElementById('dualGradGroup');
+        const startPointSelect = document.getElementById('startPoint');
         
-        if (years >= 15) {
-            replacementRate = 0.30 + ((years - 15) * 0.015);
-            // 設立嚴格的替代率天花板 (60%)
-            if (replacementRate > 0.60) {
-                replacementRate = 0.60;
+        singleGroup.style.display = 'none';
+        dualGroup.style.display = 'none';
+
+        if (midDegree === 'master' || midDegree === 'phd') {
+            singleGroup.style.display = 'block';
+            if (midDegree === 'master' && startPointSelect.value !== '190') startPointSelect.value = "190"; 
+            if (midDegree === 'phd' && startPointSelect.value === '330') startPointSelect.value = "245"; 
+        } else if (midDegree === 'dual') {
+            dualGroup.style.display = 'block';
+            if (startPointSelect.value !== '190') startPointSelect.value = "190"; 
+        }
+    }
+
+    function calculatePension() {
+        const startPoint = parseInt(document.getElementById('startPoint').value);
+        const retirePoint = parseInt(document.getElementById('retirePoint').value);
+        let years = parseInt(document.getElementById('years').value);
+        const earlyRetireYears = parseInt(document.getElementById('earlyRetire').value);
+        
+        const midDegree = document.getElementById('midCareerDegree').value;
+        const gradYear = parseInt(document.getElementById('gradYear').value);
+        const gradYearMaster = parseInt(document.getElementById('gradYearMaster').value);
+        const gradYearPhd = parseInt(document.getElementById('gradYearPhd').value);
+
+        if (years < 15) { alert('月退休金需任職滿 15 年以上。'); return; }
+        if (years > 40) years = 40;
+
+        if ((midDegree === 'master' || midDegree === 'dual') && startPoint !== 190) {
+            alert('中途取得碩士學位，起敘俸點應為「190 (學士起敘)」。'); return;
+        }
+        if (midDegree === 'phd' && startPoint === 330) {
+            alert('您的起敘已經是博士，無法再進行博士提敘。'); return;
+        }
+        if ((midDegree === 'master' || midDegree === 'phd') && gradYear >= years) {
+            alert('取得學位的年分不能大於或等於總任職年資。'); return;
+        }
+        if (midDegree === 'dual') {
+            if (gradYearMaster >= gradYearPhd) {
+                alert('雙重進修邏輯錯誤：碩士畢業年份必須早於博士畢業年份。'); return;
+            }
+            if (gradYearPhd >= years) {
+                alert('取得學位的年分不能大於或等於總任職年資。'); return;
             }
         }
 
-        // 月退計算公式：本薪 x 2 x 所得替代率
-        const monthlyPension = baseSalary * 2 * replacementRate;
-
-        // 顯示結果與客觀風險提示
-        resultBox.style.display = 'block';
+        let trajectoryData = [];
+        let logHtml = "<strong>【晉級與提敘軌跡紀錄】</strong><br>";
         
-        if (years < 15) {
-            resultContent.innerHTML = '<p style="color:#c0392b; font-weight:bold;">年資未滿 15 年，依規定僅能請領一次退休金，無法請領月退休金。</p>';
-        } else {
-            resultContent.innerHTML = `
-                <div>預估所得替代率上限：<strong>${(replacementRate * 100).toFixed(1)}%</strong></div>
-                <div>保守估計月退休金：<span class="result-value">${Math.round(monthlyPension).toLocaleString()} 元</span></div>
-                <div class="objective-warning">
-                    <strong>【客觀風險評估提示】</strong><br>
-                    此試算採用最保守之替代率模型進行推估，未計入未來可能之通膨對購買力的削弱，亦未包含公保養老給付。實際請領金額將隨法規與基金撥補狀況浮動，請以此低標數據作為未來現金流規劃的安全底線。
-                </div>
+        let currIdx = pointLevels.indexOf(startPoint);
+        let currentCeilingIdx = pointLevels.indexOf(maxPointsByEdu[startPoint]); 
+        let targetRetireIdx = pointLevels.indexOf(retirePoint); 
+
+        for (let y = 1; y <= years; y++) {
+            let effectiveIdx = Math.min(currIdx, currentCeilingIdx, targetRetireIdx);
+            let currentPoint = pointLevels[effectiveIdx];
+            let currentSalary = salaryData[currentPoint];
+            
+            trajectoryData.push(currentSalary);
+            
+            let shouldLog = false;
+            if (y <= 2 || y >= years - 1) shouldLog = true;
+            if (midDegree === 'master' || midDegree === 'phd') {
+                if (y === gradYear || y === gradYear + 1) shouldLog = true;
+            } else if (midDegree === 'dual') {
+                if (y === gradYearMaster || y === gradYearMaster + 1 || y === gradYearPhd || y === gradYearPhd + 1) shouldLog = true;
+            }
+
+            if (shouldLog) {
+                logHtml += `第 ${y} 年：俸點 ${currentPoint} (本俸 ${currentSalary.toLocaleString()})<br>`;
+            } else if (y === 3) {
+                logHtml += `... (常規晉級) ...<br>`;
+            }
+
+            let nextYearAdvance = 1; 
+            
+            if (midDegree === 'master' && y === gradYear) {
+                nextYearAdvance += 3; 
+                currentCeilingIdx = pointLevels.indexOf(650); 
+                logHtml += `<span style="color:#6fbaff;">▲ 第 ${y} 年取得碩士，天花板解鎖至650，次年跳3級。</span><br>`;
+            } else if (midDegree === 'phd' && y === gradYear) {
+                if (startPoint === 190) {
+                    nextYearAdvance += 5; 
+                    logHtml += `<span style="color:#e74c3c;">▲ 第 ${y} 年取得博士(學士進修)，天花板解鎖至680，大躍進跳5級。</span><br>`;
+                } else if (startPoint === 245) {
+                    nextYearAdvance += 2; 
+                    logHtml += `<span style="color:#6fbaff;">▲ 第 ${y} 年取得博士(碩士進修)，天花板解鎖至680，次年跳2級。</span><br>`;
+                }
+                currentCeilingIdx = pointLevels.indexOf(680); 
+            } else if (midDegree === 'dual') {
+                if (y === gradYearMaster) {
+                    nextYearAdvance += 3;
+                    currentCeilingIdx = pointLevels.indexOf(650);
+                    logHtml += `<span style="color:#6fbaff;">▲ 第 ${y} 年完成階段一(碩士)，天花板解鎖至650，次年跳3級。</span><br>`;
+                } else if (y === gradYearPhd) {
+                    nextYearAdvance += 2; 
+                    currentCeilingIdx = pointLevels.indexOf(680);
+                    logHtml += `<span style="color:#e74c3c;">▲ 第 ${y} 年完成階段二(博士)，天花板最終解鎖至680，次年跳2級。</span><br>`;
+                }
+            }
+
+            currIdx = effectiveIdx + nextYearAdvance;
+        }
+
+        // --- 提取最後 15 年計算 ---
+        const last15YearsData = trajectoryData.slice(-15);
+        const sumLast15 = last15YearsData.reduce((acc, curr) => acc + curr, 0);
+        const avgBaseSalary = sumLast15 / last15YearsData.length;
+        const ratio = replacementRatios[years];
+        
+        // 原始滿額退休金
+        const originalMonthlyPension = avgBaseSalary * 2 * ratio;
+        
+        // 減額計算 (提前1年扣4%)
+        const deductionRatio = earlyRetireYears * 0.04;
+        const deductionAmount = originalMonthlyPension * deductionRatio;
+        const finalMonthlyPension = originalMonthlyPension - deductionAmount;
+
+        // --- 畫面渲染 ---
+        document.getElementById('resultBox').style.display = 'block';
+        document.getElementById('trajectoryLog').innerHTML = logHtml;
+        
+        const resultContent = document.getElementById('resultContent');
+        
+        // 建立結果內容字串
+        let resultHtml = `
+            <div class="result-row">
+                <span>最終到達本俸額：</span>
+                <strong style="color:#e8e6e3;">${trajectoryData[trajectoryData.length - 1].toLocaleString()} 元</strong>
+            </div>
+            <div class="result-row">
+                <span>最後 15 年平均本俸：</span>
+                <strong style="color:#e8e6e3;">${Math.round(avgBaseSalary).toLocaleString()} 元</strong>
+            </div>
+            <div class="result-row">
+                <span>對應所得替代率：</span>
+                <strong style="color:#6fbaff;">${(ratio * 100).toFixed(1)}%</strong>
+            </div>
+        `;
+
+        // 若有提早退休，新增減額明細列
+        if (earlyRetireYears > 0) {
+            resultHtml += `
+            <div class="result-row">
+                <span>原始估算退休金 (未減額)：</span>
+                <strong style="color:#9ca3af;">${Math.round(originalMonthlyPension).toLocaleString()} 元</strong>
+            </div>
+            <div class="result-row">
+                <span>減額扣除 (提前 ${earlyRetireYears} 年，扣 ${earlyRetireYears * 4}%)：</span>
+                <strong style="color:#e74c3c;">- ${Math.round(deductionAmount).toLocaleString()} 元</strong>
+            </div>
             `;
         }
+
+        resultHtml += `
+            <div class="result-row" style="margin-top: 15px; border-bottom: none;">
+                <span style="font-weight: bold; color: #b0b3b8; line-height: 40px;">最終估計月退休金：</span>
+                <span class="final-pension">${Math.round(finalMonthlyPension).toLocaleString()} 元</span>
+            </div>
+            <div class="objective-warning">
+                <strong>【財務客觀評估提示】</strong><br>
+                分析財務時應保持客觀中立，此試算結果未計入未來通貨膨脹對實質購買力之削弱，亦未包含法規變動之潛在風險。提前退休減額採單純 4%/年 進行試算，請將此最終數值視為最保守之現金流底線，避免因過度樂觀而高估退休所得。
+            </div>
+        `;
+        
+        resultContent.innerHTML = resultHtml;
     }
 </script>
 
