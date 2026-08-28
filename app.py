@@ -26,7 +26,7 @@ from reportlab.lib.utils import ImageReader
 st.set_page_config(page_title="全校通用購書單系統", layout="centered", page_icon="📚")
 
 FONT_NAME = "NotoSansTC-Regular.ttf"
-FONT_URL = "https://cdn.jsdelivr.net/gh/themoeway/noto-sans-tc-ttf@master/ttf/NotoSansTC-Regular.ttf"
+FONT_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanstc/NotoSansTC%5Bwght%5D.ttf"
 
 @st.cache_resource
 def init_fonts():
@@ -881,6 +881,8 @@ with tab3:
     系統先以老師辨識分組節次，再依數理、英文與資優名單安排跑班。
     **輸出只保留正式課表上的科目名稱**，不會把內部判斷的真實課程寫出去。
     自動判斷後一定會先顯示「節次規則」及「學生分組」供老師校正，確認後才產生課表。
+    **請老師務必自行修改學生的「資優類別」；系統不會預存任何學生姓名。**
+    語文資優生於英文、國文節次前往資優班；數理分組及其他課程仍依原班規則上課。
     """)
 
     if pdfplumber is None:
@@ -898,8 +900,8 @@ with tab3:
     RULE_ENGLISH = "英文分組"
     RULE_OPTIONS = [RULE_NORMAL, RULE_STEM, RULE_ENGLISH]
 
-    # 本次901已確認的三位數理資優生；之後仍可在校正表直接修改。
-    VERIFIED_STEM_GIFTED = {"陳昱學", "梁容嘉", "洪采漩"}
+    # 為保護學生隱私，程式不預存資優生姓名；請老師在校正表自行指定。
+    VERIFIED_STEM_GIFTED = set()
 
     def clean_pdf_lines(value):
         if value is None:
@@ -1123,6 +1125,20 @@ with tab3:
         match = re.match(r"\s*(\d{3})", str(route_label))
         return int(match.group(1)) if match else None
 
+    def is_home_chinese_slot(schedules, home_class, period_no, day_index):
+        """先由正式國文課建立老師名單，再用老師判斷該節是否為國文。"""
+        home_schedule = schedules.get(home_class, {})
+        chinese_teachers = {
+            str(cell.get("teacher", ""))
+            for cell in home_schedule.values()
+            if any(word in str(cell.get("subject", "")) for word in ["國語文", "國文"])
+            and str(cell.get("teacher", ""))
+        }
+        current_teacher = str(
+            home_schedule.get((period_no, day_index), {}).get("teacher", "")
+        )
+        return bool(current_teacher and current_teacher in chinese_teachers)
+
     def make_personal_grid(student, schedules, rule_map, gifted_class):
         home_class = int(student["原班"])
         gifted_type = str(student.get("資優類別", "無"))
@@ -1154,6 +1170,14 @@ with tab3:
                     else:
                         route_label = str(student.get("英文去向", "未設定"))
                         destination_class = route_class_from_label(route_label)
+                elif "語文資優" in gifted_type and is_home_chinese_slot(
+                    schedules, home_class, period_no, day_index
+                ):
+                    destination_class = gifted_class
+                    route_label = f"{gifted_class}語文資優"
+                    cell_kind = "gifted"
+                    # 國文不是一般跑班規則，但語文資優生在此節仍需抽離。
+                    rule = "語文資優抽離"
 
                 if destination_class is None or destination_class not in schedules:
                     errors.append(
@@ -1274,6 +1298,132 @@ with tab3:
 
         output = io.BytesIO()
         wb.save(output)
+        return output.getvalue(), all_errors
+
+    def _pdf_wrapped_lines(text, font_name, font_size, max_width):
+        """依實際字寬切行，保留課表原本的換行。"""
+        wrapped = []
+        pdf_text = str(text or "").replace("【", "[").replace("】", "]").replace("／", "/")
+        for source_line in pdf_text.splitlines() or [""]:
+            current = ""
+            for char in source_line:
+                candidate = current + char
+                if current and pdfmetrics.stringWidth(candidate, font_name, font_size) > max_width:
+                    wrapped.append(current)
+                    current = char
+                else:
+                    current = candidate
+            wrapped.append(current)
+        return wrapped
+
+    def draw_personal_schedule_pdf_page(pdf, student, grid):
+        """在既有 PDF 畫布加入一位學生的一頁橫式 A4 功課表。"""
+        page_width, page_height = A4[1], A4[0]
+        font_name = "CustomFont" if HAS_FONT else "Helvetica"
+
+        title = f"{int(student['原班'])}班 {int(student['座號'])}號 {student['姓名']} 個人功課表"
+        subtitle = (
+            f"數理：{student.get('數理去向', '未設定')}　"
+            f"英文：{student.get('英文去向', '未設定')}　"
+            f"資優：{student.get('資優類別', '無')}"
+        )
+        pdf.setTitle(title)
+        pdf.setFont(font_name, 16)
+        pdf.drawCentredString(page_width / 2, page_height - 28, title)
+        pdf.setFont(font_name, 9)
+        pdf.drawCentredString(page_width / 2, page_height - 45, subtitle)
+
+        left = 20
+        bottom = 20
+        table_top = page_height - 58
+        table_height = table_top - bottom
+        header_height = 27
+        row_height = (table_height - header_height) / 10
+        first_width = 58
+        day_width = (page_width - 40 - first_width) / 5
+        widths = [first_width] + [day_width] * 5
+        headers = ["節次"] + DAY_NAMES
+
+        fill_colors = {
+            "normal": (1, 1, 1),
+            "stem": (0.87, 0.92, 0.97),
+            "english": (0.99, 0.89, 0.84),
+            "gifted": (0.89, 0.87, 0.93),
+            "warning": (1, 0.78, 0.81),
+        }
+
+        x = left
+        for col_no, header in enumerate(headers):
+            width = widths[col_no]
+            pdf.setFillColorRGB(0.27, 0.45, 0.71)
+            pdf.rect(x, table_top - header_height, width, header_height, fill=1, stroke=0)
+            pdf.setFillColorRGB(1, 1, 1)
+            pdf.setFont(font_name, 9)
+            pdf.drawCentredString(x + width / 2, table_top - 18, header)
+            x += width
+
+        for period_no in range(10):
+            y_top = table_top - header_height - period_no * row_height
+            x = left
+            pdf.setFillColorRGB(0.95, 0.95, 0.95)
+            pdf.rect(x, y_top - row_height, first_width, row_height, fill=1, stroke=0)
+            pdf.setFillColorRGB(0, 0, 0)
+            pdf.setFont(font_name, 8.5)
+            pdf.drawCentredString(x + first_width / 2, y_top - row_height / 2 - 3, PERIOD_LABELS[period_no])
+            x += first_width
+
+            for day_index in range(5):
+                item = grid[(period_no, day_index)]
+                rgb = fill_colors.get(item["kind"], fill_colors["normal"])
+                pdf.setFillColorRGB(*rgb)
+                pdf.rect(x, y_top - row_height, day_width, row_height, fill=1, stroke=0)
+                pdf.setFillColorRGB(0, 0, 0)
+                font_size = 7.2
+                lines = _pdf_wrapped_lines(item["text"], font_name, font_size, day_width - 8)
+                if len(lines) > 5:
+                    font_size = 6.4
+                    lines = _pdf_wrapped_lines(item["text"], font_name, font_size, day_width - 8)
+                lines = lines[:6]
+                line_height = font_size + 1.2
+                text_y = y_top - (row_height - len(lines) * line_height) / 2 - font_size
+                pdf.setFont(font_name, font_size)
+                for line in lines:
+                    pdf.drawCentredString(x + day_width / 2, text_y, line)
+                    text_y -= line_height
+                x += day_width
+
+        pdf.setStrokeColorRGB(0.5, 0.5, 0.5)
+        x = left
+        for width in widths:
+            pdf.rect(x, bottom, width, table_height, fill=0, stroke=1)
+            x += width
+        for row_no in range(11):
+            y = table_top - header_height - row_no * row_height
+            pdf.line(left, y, page_width - 20, y)
+        pdf.line(left, table_top, page_width - 20, table_top)
+
+        pdf.showPage()
+
+    def generate_personal_schedule_pdf(student, grid):
+        """製作單一學生、一頁橫式 A4 的個人功課表 PDF。"""
+        output = io.BytesIO()
+        page_width, page_height = A4[1], A4[0]
+        pdf = canvas.Canvas(output, pagesize=(page_width, page_height))
+        draw_personal_schedule_pdf_page(pdf, student, grid)
+        pdf.save()
+        return output.getvalue()
+
+    def generate_all_schedule_pdf(student_records, schedules, rule_map, gifted_class):
+        """製作全班共用的多頁 PDF，每位學生固定一頁。"""
+        output = io.BytesIO()
+        all_errors = []
+        page_width, page_height = A4[1], A4[0]
+        pdf = canvas.Canvas(output, pagesize=(page_width, page_height))
+        for student in student_records:
+            grid, errors = make_personal_grid(student, schedules, rule_map, gifted_class)
+            all_errors.extend(errors)
+            draw_personal_schedule_pdf_page(pdf, student, grid)
+        pdf.save()
         return output.getvalue(), all_errors
 
     st.markdown("#### 步驟一：上傳正式課表與分組名單")
@@ -1445,8 +1595,11 @@ with tab3:
             all_excel, all_excel_errors = generate_schedule_workbook(
                 edited_students.to_dict("records"), schedules, rule_map, gifted_class
             )
+            all_pdf, all_pdf_errors = generate_all_schedule_pdf(
+                edited_students.to_dict("records"), schedules, rule_map, gifted_class
+            )
 
-            col_download1, col_download2 = st.columns(2)
+            col_download1, col_download2, col_download3 = st.columns(3)
             with col_download1:
                 st.download_button(
                     "下載這位學生的個人功課表",
@@ -1461,8 +1614,15 @@ with tab3:
                     file_name=f"{target_class}_全班個人功課表.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
+            with col_download3:
+                st.download_button(
+                    f"下載{target_class}全班個人功課表 PDF",
+                    data=all_pdf,
+                    file_name=f"{target_class}_全班個人功課表.pdf",
+                    mime="application/pdf",
+                )
 
-            unique_errors = list(dict.fromkeys(all_excel_errors))
+            unique_errors = list(dict.fromkeys(all_excel_errors + all_pdf_errors))
             if unique_errors:
                 with st.expander(f"全班共有 {len(unique_errors)} 個資料警告", expanded=False):
                     for message in unique_errors:

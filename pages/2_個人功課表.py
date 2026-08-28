@@ -56,6 +56,8 @@ st.info("""
 系統先以老師辨識分組節次，再依數理、英文與資優名單安排跑班。
 **輸出只保留正式課表上的科目名稱**，不會把內部判斷的真實課程寫出去。
 自動判斷後一定會先顯示「節次規則」及「學生分組」供老師校正，確認後才產生課表。
+**請老師務必自行修改學生的「資優類別」；系統不會預存任何學生姓名。**
+語文資優生於英文、國文節次前往資優班；數理分組及其他課程仍依原班規則上課。
 """)
 
 if pdfplumber is None:
@@ -73,8 +75,8 @@ RULE_STEM = "數理分組"
 RULE_ENGLISH = "英文分組"
 RULE_OPTIONS = [RULE_NORMAL, RULE_STEM, RULE_ENGLISH]
 
-# 本次901已確認的三位數理資優生；之後仍可在校正表直接修改。
-VERIFIED_STEM_GIFTED = {"陳昱學", "梁容嘉", "洪采漩"}
+# 為保護學生隱私，程式不預存資優生姓名；請老師在校正表自行指定。
+VERIFIED_STEM_GIFTED = set()
 
 def clean_pdf_lines(value):
     if value is None:
@@ -298,6 +300,20 @@ def route_class_from_label(route_label):
     match = re.match(r"\s*(\d{3})", str(route_label))
     return int(match.group(1)) if match else None
 
+def is_home_chinese_slot(schedules, home_class, period_no, day_index):
+    """先由正式國文課建立老師名單，再用老師判斷該節是否為國文。"""
+    home_schedule = schedules.get(home_class, {})
+    chinese_teachers = {
+        str(cell.get("teacher", ""))
+        for cell in home_schedule.values()
+        if any(word in str(cell.get("subject", "")) for word in ["國語文", "國文"])
+        and str(cell.get("teacher", ""))
+    }
+    current_teacher = str(
+        home_schedule.get((period_no, day_index), {}).get("teacher", "")
+    )
+    return bool(current_teacher and current_teacher in chinese_teachers)
+
 def make_personal_grid(student, schedules, rule_map, gifted_class):
     home_class = int(student["原班"])
     gifted_type = str(student.get("資優類別", "無"))
@@ -329,6 +345,14 @@ def make_personal_grid(student, schedules, rule_map, gifted_class):
                 else:
                     route_label = str(student.get("英文去向", "未設定"))
                     destination_class = route_class_from_label(route_label)
+            elif "語文資優" in gifted_type and is_home_chinese_slot(
+                schedules, home_class, period_no, day_index
+            ):
+                destination_class = gifted_class
+                route_label = f"{gifted_class}語文資優"
+                cell_kind = "gifted"
+                # 國文不是一般跑班規則，但語文資優生在此節仍需抽離。
+                rule = "語文資優抽離"
 
             if destination_class is None or destination_class not in schedules:
                 errors.append(
