@@ -663,484 +663,6 @@ def load_google_sheet_data(xlsx_url):
     df_books = pd.read_excel(xlsx_url, sheet_name=1).fillna("")
     return df_students, df_books
 
-# ==========================================
-# 0.6 共用工具：書商 PDF 報價單解析（支援文字層 PDF 與掃描影像 PDF）
-# ==========================================
-_OCR_SIMP_TO_TRAD = str.maketrans({
-    "数": "數", "国": "國", "历": "歷", "复": "複", "讲": "講", "义": "義",
-    "习": "習", "学": "學", "备": "備", "单": "單", "价": "價", "总": "總",
-    "额": "額", "书": "書", "伟": "偉", "轩": "軒", "汉": "漢", "华": "華",
-    "联": "聯", "络": "絡", "双": "雙", "沟": "溝", "点": "點", "轻": "輕",
-    "松": "鬆", "满": "滿", "贯": "貫", "挑": "挑", "战": "戰", "拟": "擬",
-    "题": "題", "详": "詳", "图": "圖", "纸": "紙", "统": "統", "领": "領",
-    "师": "師", "课": "課", "会": "會", "语": "語", "试": "試", "评": "評",
-    "测": "測", "验": "驗", "资": "資", "优": "優", "组": "組", "号": "號",
-    "类": "類", "别": "別", "项": "項", "记": "記", "注": "註", "计": "計",
-    "页": "頁", "册": "冊", "级": "級", "练": "練", "汇": "彙", "编": "編",
-    "辑": "輯", "导": "導", "读": "讀", "写": "寫", "听": "聽", "说": "說",
-    "译": "譯", "词": "詞", "实": "實", "际": "際", "补": "補", "强": "強",
-    "阶": "階", "进": "進", "标": "標", "准": "準", "选": "選", "艺": "藝",
-    "术": "術", "体": "體", "综": "綜", "动": "動", "应": "應", "缴": "繳",
-    "费": "費", "买": "買", "购": "購", "邮": "郵", "电": "電", "话": "話",
-    "时": "時", "间": "間", "个": "個", "无": "無", "据": "據", "齐": "齊",
-    "顶": "頂", "版": "版", "卷": "卷",
-    "０": "0", "１": "1", "２": "2", "３": "3", "４": "4",
-    "５": "5", "６": "6", "７": "7", "８": "8", "９": "9",
-    "Ａ": "A", "Ｂ": "B", "Ｃ": "C", "Ｄ": "D", "Ｅ": "E", "Ｆ": "F",
-    "ａ": "a", "ｂ": "b", "ｃ": "c", "ｄ": "d", "ｅ": "e", "ｆ": "f",
-})
-
-def normalize_pdf_ocr_text(text):
-    return str(text or "").translate(_OCR_SIMP_TO_TRAD).strip()
-
-@st.cache_resource(show_spinner=False)
-def get_quotation_ocr_engine():
-    """延遲載入離線 OCR 引擎，優先繁體中文模型，若版本不支援則自動退回預設中文模型。"""
-    try:
-        from rapidocr import RapidOCR
-        try:
-            from rapidocr import LangRec, OCRVersion
-            return RapidOCR(params={
-                "Rec.lang_type": LangRec.CHINESE_CHT,
-                "Rec.ocr_version": OCRVersion.PPOCRV4,
-            }), "v3"
-        except Exception:
-            pass
-        try:
-            return RapidOCR(params={"Rec.lang_type": "chinese_cht"}), "v3"
-        except Exception:
-            pass
-        return RapidOCR(), "v3"
-    except Exception:
-        pass
-    try:
-        from rapidocr_onnxruntime import RapidOCR as LegacyRapidOCR
-        return LegacyRapidOCR(), "legacy"
-    except Exception:
-        return None, None
-
-def _clean_book_title_from_pdf(raw_text):
-    text = normalize_pdf_ocr_text(raw_text)
-    # 去除最左側序號與日期（如 1 10/22、16 10/30、或沾黏成 110/22）
-    text = re.sub(r"^\s*\d{1,3}[\.、]?\s+(?=\d{1,2}\s*/\s*\d{1,2}\b)", "", text)
-    text = re.sub(r"^\s*\d{1,4}\s*/\s*\d{1,2}\s*", "", text)
-    text = re.sub(r"^\s*\d{1,3}[\.、]?\s+(?=[^\d/])", "", text)
-    # 去除品名尾端連接點線（保留 1-4、3-6 這類單一連字號）
-    text = re.sub(r"(?:[\s]*[\.·•‧・…\-－—]{2,}[\s]*)+$", "", text)
-    text = re.sub(r"(?:\s*[\.·•‧・…]\s*){2,}$", "", text)
-    text = re.sub(r"[\s\.·•‧・…\-－—_,，]+$", "", text)
-    text = re.sub(r"\s{2,}", " ", text)
-    return text.strip()
-
-def _parse_int_token(tok_text):
-    cleaned = normalize_pdf_ocr_text(tok_text).replace(",", "").strip()
-    if not cleaned:
-        return None
-    # 僅在純數字／類數字欄修正常見 OCR 誤判
-    if re.fullmatch(r"[0-9OoIl]+", cleaned):
-        fixed = cleaned.replace("O", "0").replace("o", "0").replace("I", "1").replace("l", "1")
-        if fixed.isdigit():
-            return int(fixed)
-    return None
-
-def _is_group_note_token(tok_text):
-    s = normalize_pdf_ocr_text(tok_text).replace(" ", "")
-    if not s:
-        return False
-    s_fixed = re.sub(r"(?<=\d)[Oo](?=\d|[A-Za-z])", "0", s)
-    return bool(re.fullmatch(r"(?:[數自英國社]?\d{1,3}[A-Za-z]|[A-Za-z]\d{1,2}|[A-Za-z])", s_fixed))
-
-def _normalize_group_note_token(tok_text):
-    s = normalize_pdf_ocr_text(tok_text).replace(" ", "")
-    s = re.sub(r"(?<=\d)[Oo](?=\d|[A-Za-z])", "0", s)
-    s = re.sub(r"(?<=[數自英國社])[Il](?=[A-Za-z])", "1", s)
-    return s
-
-def _detect_publisher_from_line_text(compact_text):
-    compact_text = normalize_pdf_ocr_text(compact_text)
-    if not compact_text:
-        return None
-    skip_kws = ["商品名稱", "品名", "總金額", "總單價", "合計", "小計", "數量", "單價", "黎明國中"]
-    if any(k in compact_text for k in skip_kws):
-        return None
-    # 若單據號／列印日與書局標題落在同一視覺列，先剝除右側單據資訊
-    stripped = re.sub(r"單據號[:：]?\S*", "", compact_text)
-    stripped = re.sub(r"列印日[:：]?\S*", "", stripped)
-    pub_kws = ["書局", "書城", "出版社", "文化", "估價單", "報價單", "出貨單", "請款單"]
-    if not any(k in stripped for k in pub_kws):
-        return None
-    cleaned = re.sub(r"(?:估價單|報價單|出貨單|請款單)", "", stripped)
-    cleaned = re.sub(r"[\d\-－—_:：()（）\[\]【】\s\.]+", "", cleaned)
-    if 2 <= len(cleaned) <= 16:
-        return cleaned
-    return None
-
-def group_pdf_tokens_into_lines(tokens):
-    if not tokens:
-        return []
-    heights = sorted(max(1.0, float(t.get("h", 12.0))) for t in tokens)
-    median_h = heights[len(heights) // 2]
-    y_tol = max(4.0, median_h * 0.55)
-
-    sorted_tokens = sorted(tokens, key=lambda t: (t["yc_adj"], t["x0"]))
-    lines = []
-    for tok in sorted_tokens:
-        if not lines:
-            lines.append({"yc": tok["yc_adj"], "tokens": [tok]})
-            continue
-        last_line = lines[-1]
-        if abs(tok["yc_adj"] - last_line["yc"]) <= y_tol:
-            last_line["tokens"].append(tok)
-            n = len(last_line["tokens"])
-            last_line["yc"] = (last_line["yc"] * (n - 1) + tok["yc_adj"]) / n
-        else:
-            lines.append({"yc": tok["yc_adj"], "tokens": [tok]})
-
-    result = []
-    for line in lines:
-        result.append(sorted(line["tokens"], key=lambda t: t["x0"]))
-    return result
-
-def _extract_tokens_from_pdf_page(pdf_bytes, page_index):
-    """先用 pdfplumber 抽文字層；若為掃描影像 PDF 則自動改用離線 OCR 並校正傾斜。"""
-    if pdfplumber is not None:
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            page = pdf.pages[page_index]
-            words = page.extract_words(keep_blank_chars=False, use_text_flow=False, x_tolerance=2, y_tolerance=2) or []
-            char_count = sum(len(w["text"].strip()) for w in words)
-            has_cjk = any(re.search(r"[\u4e00-\u9fff]", w["text"]) for w in words)
-            has_num = any(re.search(r"\d", w["text"]) for w in words)
-            if char_count >= 25 and has_cjk and has_num:
-                tokens = []
-                for w in words:
-                    x0, x1 = float(w["x0"]), float(w["x1"])
-                    y0, y1 = float(w["top"]), float(w["bottom"])
-                    tokens.append({
-                        "x0": x0, "x1": x1, "y0": y0, "y1": y1,
-                        "xc": (x0 + x1) / 2.0,
-                        "yc": (y0 + y1) / 2.0,
-                        "yc_adj": (y0 + y1) / 2.0,
-                        "h": max(1.0, y1 - y0),
-                        "text": normalize_pdf_ocr_text(w["text"]),
-                    })
-                return tokens, float(page.width), "PDF文字層", None
-
-    # 掃描影像 PDF：用 pypdfium2 轉圖 + RapidOCR 辨識
-    try:
-        import numpy as np
-        import pypdfium2 as pdfium
-    except ImportError:
-        return [], 1000.0, "缺少OCR套件", "此 PDF 為掃描影像檔，系統缺少 pypdfium2 或 numpy 套件，請更新 requirements.txt 後重新部署。"
-
-    engine, api_ver = get_quotation_ocr_engine()
-    if engine is None:
-        return [], 1000.0, "缺少OCR套件", "此 PDF 為掃描影像檔，系統缺少 rapidocr / onnxruntime 套件，請更新 requirements.txt 後重新部署。"
-
-    doc = pdfium.PdfDocument(pdf_bytes)
-    page = doc[page_index]
-    pil_img = page.render(scale=2.5).to_pil().convert("RGB")
-    img_w = float(pil_img.width)
-    img_arr = np.array(pil_img)
-
-    raw_items = []
-    if api_ver == "v3":
-        res = engine(img_arr)
-        if res is not None and getattr(res, "boxes", None) is not None and getattr(res, "txts", None) is not None:
-            for box, txt in zip(res.boxes, res.txts):
-                raw_items.append((box, txt))
-    else:
-        res, _ = engine(img_arr)
-        if res:
-            for item in res:
-                raw_items.append((item[0], item[1]))
-
-    slopes = []
-    tokens = []
-    for box, txt in raw_items:
-        txt_clean = normalize_pdf_ocr_text(txt)
-        if not txt_clean:
-            continue
-        xs = [float(p[0]) for p in box]
-        ys = [float(p[1]) for p in box]
-        x0, x1 = min(xs), max(xs)
-        y0, y1 = min(ys), max(ys)
-        h = max(1.0, y1 - y0)
-        dx = float(box[1][0]) - float(box[0][0])
-        dy = float(box[1][1]) - float(box[0][1])
-        if dx > max(4.0 * h, 80.0):
-            s = dy / dx
-            if abs(s) <= 0.12:
-                slopes.append(s)
-        tokens.append({
-            "x0": x0, "x1": x1, "y0": y0, "y1": y1,
-            "xc": (x0 + x1) / 2.0,
-            "yc": (y0 + y1) / 2.0,
-            "yc_adj": (y0 + y1) / 2.0,
-            "h": h,
-            "text": txt_clean,
-        })
-
-    if slopes:
-        slopes.sort()
-        page_slope = slopes[len(slopes) // 2]
-        half_w = img_w / 2.0
-        for tok in tokens:
-            tok["yc_adj"] = tok["yc"] - page_slope * (tok["xc"] - half_w)
-
-    return tokens, img_w, "掃描影像辨識(OCR)", None
-
-def _find_header_anchors(lines):
-    header_kws = ["品名", "商品", "名稱", "數量", "單價", "金額", "備註", "附記"]
-    for idx, line in enumerate(lines):
-        compact = re.sub(r"\s+", "", "".join(t["text"] for t in line))
-        hits = sum(1 for kw in header_kws if kw in compact)
-        if hits >= 2:
-            anchors = {"header_idx": idx, "x_qty_left": None, "x_note_left": None, "has_amt": "金額" in compact}
-            for tok in line:
-                t_c = re.sub(r"\s+", "", tok["text"])
-                w = max(1.0, tok["x1"] - tok["x0"])
-                if "數量" in t_c and anchors["x_qty_left"] is None:
-                    pos_ratio = t_c.find("數量") / max(1, len(t_c))
-                    anchors["x_qty_left"] = tok["x0"] + w * pos_ratio - 12.0
-                if ("備" in t_c or "附記" in t_c or "分組" in t_c) and anchors["x_note_left"] is None:
-                    # 避免把「商品名稱」誤判，且若在同一格內精準定位「備」字起始位置
-                    key_idx = t_c.find("備") if "備" in t_c else (t_c.find("附記") if "附記" in t_c else t_c.find("分組"))
-                    pos_ratio = key_idx / max(1, len(t_c))
-                    anchors["x_note_left"] = tok["x0"] + w * pos_ratio - 8.0
-            return anchors
-    return None
-
-def _parse_single_quotation_line(line, anchors):
-    compact = re.sub(r"\s+", "", "".join(t["text"] for t in line))
-    if not compact:
-        return None
-
-    # 切分點線與空白，整理為子碎片（保留座標資訊）
-    left_parts = []
-    mid_parts = []
-    right_parts = []
-
-    x_qty_left = anchors.get("x_qty_left") if anchors else None
-    x_note_left = anchors.get("x_note_left") if anchors else None
-
-    if x_qty_left is not None:
-        for tok in line:
-            txt = tok["text"]
-            # 若單一 OCR 框橫跨品名與數量欄（例如「數學(5).....11 203」），按點線與空白拆開
-            if tok["x0"] < x_qty_left < tok["x1"]:
-                norm = re.sub(r"(?:[\.·•‧・…]{2,}|(?:\s*[\.·•‧・…]\s*){2,})", " |SPLIT| ", txt)
-                segs = [p.strip() for p in norm.split("|SPLIT|") if p.strip()]
-                if len(segs) >= 2:
-                    left_parts.append(segs[0])
-                    for tail in segs[1:]:
-                        for piece in tail.split():
-                            mid_parts.append(piece)
-                    continue
-                # 否則看尾巴是否黏了 2-3 個數字
-                m_tail = re.match(r"^(.*?)\s+(\d+(?:\s+\d+){1,2}(?:\s+\S+)?)$", txt)
-                if m_tail:
-                    left_parts.append(m_tail.group(1))
-                    for piece in m_tail.group(2).split():
-                        mid_parts.append(piece)
-                    continue
-
-            if x_note_left is not None and tok["xc"] >= x_note_left:
-                right_parts.extend(txt.split())
-            elif tok["xc"] >= x_qty_left:
-                mid_parts.extend(txt.split())
-            else:
-                left_parts.append(txt)
-
-        # 若最右欄開頭其實是金額（微偏右），且中間數字不足 3 個，拉回中間
-        while right_parts and len([x for x in mid_parts if _parse_int_token(x) is not None]) < 3:
-            if _parse_int_token(right_parts[0]) is not None:
-                mid_parts.append(right_parts.pop(0))
-            else:
-                break
-
-        # 若中間欄尾端有分組備註（如 901A / 數1A 微偏左），移到右欄
-        while mid_parts and _parse_int_token(mid_parts[-1]) is None and _is_group_note_token(mid_parts[-1]):
-            right_parts.insert(0, mid_parts.pop())
-
-        # 若中間數字不足 3 個，檢查左欄最後幾個碎片是否黏了數量/單價
-        mid_nums = [v for v in (_parse_int_token(p) for p in mid_parts) if v is not None]
-        if len(mid_nums) < 3 and left_parts:
-            tail_tokens = re.sub(r"(?:[\.·•‧・…]{2,}|(?:\s*[\.·•‧・…]\s*){2,})", " ", left_parts[-1]).split()
-            pulled = []
-            while tail_tokens and len(mid_nums) + len(pulled) < 3:
-                val = _parse_int_token(tail_tokens[-1])
-                if val is not None:
-                    pulled.insert(0, val)
-                    tail_tokens.pop()
-                else:
-                    break
-            if pulled:
-                left_parts[-1] = " ".join(tail_tokens)
-                mid_nums = pulled + mid_nums
-
-        raw_name = _clean_book_title_from_pdf(" ".join(p for p in left_parts if p))
-        raw_note = _normalize_group_note_token("".join(right_parts)) if right_parts else ""
-    else:
-        # 備援：無表頭座標時以整行文字正規表達式解析
-        full_text = " ".join(t["text"] for t in line)
-        full_text = re.sub(r"(?:[\.·•‧・…]{2,}|(?:\s*[\.·•‧・…]\s*){2,})", " ", full_text)
-        pieces = full_text.split()
-        raw_note = ""
-        if pieces and _parse_int_token(pieces[-1]) is None and _is_group_note_token(pieces[-1]):
-            raw_note = _normalize_group_note_token(pieces.pop())
-        mid_nums = []
-        while pieces and len(mid_nums) < 3:
-            val = _parse_int_token(pieces[-1])
-            if val is not None:
-                mid_nums.insert(0, val)
-                pieces.pop()
-            else:
-                break
-        raw_name = _clean_book_title_from_pdf(" ".join(pieces))
-
-    if not raw_name or not re.search(r"[\u4e00-\u9fffA-Za-z]", raw_name):
-        return None
-
-    qty, price, amt, math_ok = 0, 0, 0, False
-    if len(mid_nums) >= 3:
-        # 優先尋找符合 數量 * 單價 == 金額 的三元組（從右側開始找）
-        found = False
-        for i in range(len(mid_nums) - 3, -1, -1):
-            q, p, a = mid_nums[i], mid_nums[i + 1], mid_nums[i + 2]
-            if q > 0 and p > 0 and q * p == a:
-                qty, price, amt, math_ok = q, p, a, True
-                found = True
-                break
-        if not found:
-            qty, price, amt = mid_nums[-3], mid_nums[-2], mid_nums[-1]
-            math_ok = (qty > 0 and price > 0 and qty * price == amt)
-    elif len(mid_nums) == 2:
-        qty, price = mid_nums[0], mid_nums[1]
-        amt = qty * price
-        math_ok = not (anchors and anchors.get("has_amt"))
-    else:
-        return None
-
-    if price <= 0:
-        return None
-
-    return {
-        "name": raw_name,
-        "qty": int(qty),
-        "price": int(price),
-        "amount": int(amt),
-        "raw_note": raw_note,
-        "math_ok": math_ok,
-    }
-
-def parse_quotation_page_lines(lines, fallback_publisher):
-    anchors = _find_header_anchors(lines)
-    header_idx = anchors["header_idx"] if anchors else -1
-
-    publisher = None
-    # 優先在表頭上方尋找書局名稱
-    search_end = header_idx if header_idx > 0 else min(len(lines), 4)
-    for idx in range(search_end):
-        compact = re.sub(r"\s+", "", "".join(t["text"] for t in lines[idx]))
-        detected = _detect_publisher_from_line_text(compact)
-        if detected:
-            publisher = detected
-            break
-
-    books = []
-    expected_total = None
-    mismatch_rows = []
-    footer_publisher = None
-
-    start_idx = header_idx + 1 if header_idx >= 0 else 0
-    for idx in range(start_idx, len(lines)):
-        line = lines[idx]
-        compact = re.sub(r"\s+", "", "".join(t["text"] for t in line))
-        if not compact:
-            continue
-
-        # 偵測頁尾合計／總金額
-        if any(k in compact for k in ["總金額", "合計", "總計", "總單價"]):
-            m_tot = re.search(r"總金額[:：]?([0-9,]+)", compact)
-            if m_tot:
-                expected_total = int(m_tot.group(1).replace(",", ""))
-            continue
-
-        # 若已到頁尾印有書局聯絡電話（如「大墩書局 0910562975」）
-        if re.search(r"09\d{8}|\d{2,3}-\d{6,8}", compact):
-            det_foot = _detect_publisher_from_line_text(compact)
-            if det_foot:
-                footer_publisher = det_foot
-            continue
-
-        row_item = _parse_single_quotation_line(line, anchors)
-        if row_item:
-            books.append(row_item)
-            if not row_item["math_ok"]:
-                mismatch_rows.append(
-                    f"{row_item['name']}（數量 {row_item['qty']} × 單價 {row_item['price']} ≠ 金額 {row_item['amount']}）"
-                )
-
-    final_publisher = publisher or footer_publisher or fallback_publisher
-    for item in books:
-        item["publisher"] = final_publisher
-
-    parsed_total = sum(b["qty"] * b["price"] for b in books)
-    return books, {
-        "publisher": final_publisher,
-        "count": len(books),
-        "parsed_total": parsed_total,
-        "expected_total": expected_total,
-        "mismatch_rows": mismatch_rows,
-    }
-
-@st.cache_data(show_spinner=False)
-def parse_book_quotation_pdf_cached(filename, pdf_bytes):
-    """解析整份書商 PDF（支援多頁、多書商合併 PDF、文字層與掃描影像 PDF）。"""
-    default_pub = filename.rsplit(".", 1)[0]
-    page_count = 0
-    if pdfplumber is not None:
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            page_count = len(pdf.pages)
-    else:
-        import pypdfium2 as pdfium
-        page_count = len(pdfium.PdfDocument(pdf_bytes))
-
-    all_books = []
-    page_reports = []
-    last_publisher = default_pub
-
-    for page_idx in range(page_count):
-        tokens, _page_w, mode_label, err_msg = _extract_tokens_from_pdf_page(pdf_bytes, page_idx)
-        if err_msg:
-            page_reports.append({
-                "filename": filename,
-                "page_num": page_idx + 1,
-                "publisher": last_publisher,
-                "mode": mode_label,
-                "count": 0,
-                "parsed_total": 0,
-                "expected_total": None,
-                "mismatch_rows": [],
-                "error": err_msg,
-            })
-            continue
-
-        lines = group_pdf_tokens_into_lines(tokens)
-        page_books, meta = parse_quotation_page_lines(lines, fallback_publisher=last_publisher)
-        if meta["publisher"]:
-            last_publisher = meta["publisher"]
-        all_books.extend(page_books)
-        meta.update({
-            "filename": filename,
-            "page_num": page_idx + 1,
-            "mode": mode_label,
-            "error": None,
-        })
-        page_reports.append(meta)
-
-    return all_books, page_reports
-
 st.title("📚 班級各項費用與通知單系統")
 st.markdown("請選擇上方分頁切換您要使用的功能！")
 
@@ -1535,7 +1057,7 @@ with tab2:
     st.info("""
     **【系統使用說明】**
     1. 請至「台中市教育雲端系統」下載 **班級名條** (若該年級有實施分組教學，請一併下載英文/數學分組名條)。
-    2. 請向各家書商索取本次的 **報價單 PDF、CSV 或 Excel 檔**（直接上傳書商估價單 PDF 即可，支援多頁、多書商合併與掃描版自動辨識）。
+    2. 請向各家書商索取本次的 **報價單 CSV 或 Excel 檔**。
     3. 依序上傳下方檔案，若有其他自訂收費項目，可於「步驟二」表格手動新增。
     *(註：一年級免分組，僅需上傳「班級名單」與「書商報價單」即可，系統會自動產出全班明細)*
     """)
@@ -1545,11 +1067,7 @@ with tab2:
     col_a, col_b = st.columns(2)
     with col_a:
         file_class = st.file_uploader("1. 班級總名單 (Excel 檔)", type=["xlsx", "xls"])
-        file_books_list = st.file_uploader(
-            "2. 書商報價單 (可框選多份 PDF / CSV / Excel)",
-            type=["pdf", "csv", "xlsx", "xls"],
-            accept_multiple_files=True,
-        )
+        file_books_list = st.file_uploader("2. 書商報價單 (可框選多份 CSV/Excel)", type=["csv", "xlsx", "xls"], accept_multiple_files=True)
     with col_b:
         file_eng   = st.file_uploader("3. 英文分組名單 (可選)", type=["csv", "xlsx", "xls"])
         file_math  = st.file_uploader("4. 數學/自然分組名單 (可選)", type=["csv", "xlsx", "xls"])
@@ -1978,37 +1496,15 @@ with tab2:
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "自組", "資優類別"]])
 
             all_books_clean_list = []
-            pdf_parse_reports = []
             
             for fb in file_books_list:
-                publisher_name = fb.name.rsplit('.', 1)[0]
+                publisher_name = fb.name.split('.')[0]
                 extracted_books = []
                 header_skip = 0
                 keywords_header = ["品名", "商品", "名稱", "單價", "價格", "金額", "數量", "件數"]
                 
                 fb.seek(0)
-                if fb.name.lower().endswith('.pdf'):
-                    with st.spinner(f"正在讀取書商 PDF 報價單：{fb.name}..."):
-                        pdf_books, page_reports = parse_book_quotation_pdf_cached(fb.name, fb.getvalue())
-                    pdf_parse_reports.extend(page_reports)
-                    for item in pdf_books:
-                        raw_name = item['name']
-                        raw_note = item.get('raw_note', '')
-                        raw_code = standardize_book_code(raw_note) if raw_note else "1"
-                        subj_val = infer_subject(raw_name, raw_note)
-                        extracted_books.append({
-                            'name': raw_name,
-                            'price': int(item['price']),
-                            'code': raw_code,
-                            'qty': int(item['qty']),
-                            'subj': subj_val,
-                            'publisher': item['publisher'] or publisher_name,
-                        })
-                    if extracted_books:
-                        all_books_clean_list.append(pd.DataFrame(extracted_books))
-                    continue
-
-                if fb.name.lower().endswith('.csv'):
+                if fb.name.endswith('.csv'):
                     bytes_data = fb.read()
                     lines = []
                     used_enc = 'utf-8'
@@ -2060,13 +1556,12 @@ with tab2:
                     price_val = df_b['parsed_price'].iloc[i]
                     if pd.notna(price_val) and price_val > 0: 
                         raw_name = str(df_b[b_col_name].iloc[i])
-                        raw_note_cell = str(df_b[b_col_code].iloc[i]) if b_col_code else ""
-                        raw_code = standardize_book_code(raw_note_cell) if b_col_code else "1"
+                        raw_code = standardize_book_code(df_b[b_col_code].iloc[i]) if b_col_code else "1"
                         raw_qty = df_b[b_col_qty].iloc[i] if b_col_qty else 0
                         qty_val = pd.to_numeric(raw_qty, errors='coerce')
                         qty_val = int(qty_val) if pd.notna(qty_val) else 0
                         
-                        subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else infer_subject(raw_name, raw_note_cell)
+                        subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else infer_subject(raw_name, raw_code)
 
                         extracted_books.append({
                             'name': raw_name,
@@ -2105,80 +1600,6 @@ with tab2:
                 df_books_clean = auto_correct_group_code(df_books_clean, df_s)
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
-            has_pdf_warning = False
-            if pdf_parse_reports:
-                st.markdown("##### 📄 PDF 報價單自動辨識與金額核對")
-                for rep in pdf_parse_reports:
-                    if rep.get("error"):
-                        has_pdf_warning = True
-                        st.error(f"❌ {rep['filename']} 第 {rep['page_num']} 頁：{rep['error']}")
-                        continue
-                    exp_tot = rep.get("expected_total")
-                    parsed_tot = rep.get("parsed_total", 0)
-                    mismatches = rep.get("mismatch_rows", [])
-                    header_txt = (
-                        f"**{rep['filename']} 第 {rep['page_num']} 頁（{rep['publisher']}｜{rep['mode']}）**："
-                        f"共讀出 **{rep['count']}** 筆，計算合計 **${parsed_tot:,}**"
-                    )
-                    if rep["count"] == 0:
-                        has_pdf_warning = True
-                        st.warning(f"⚠️ {header_txt}，未偵測到書目資料，請確認檔案內容。")
-                    elif exp_tot is not None and exp_tot == parsed_tot and not mismatches:
-                        st.success(f"✅ {header_txt}（與估價單總金額 **${exp_tot:,}** 完全相符）")
-                    elif exp_tot is not None and exp_tot != parsed_tot:
-                        has_pdf_warning = True
-                        st.warning(
-                            f"⚠️ {header_txt}，與估價單印列總金額 **${exp_tot:,}** 差 **${abs(exp_tot - parsed_tot):,}**，"
-                            "建議展開下方書目表檢查是否有單筆數字或漏行需微調。"
-                        )
-                    else:
-                        st.info(f"ℹ️ {header_txt}")
-                    if mismatches:
-                        has_pdf_warning = True
-                        st.warning("⚠️ 以下項目「數量 × 單價 ≠ 金額」，請於下方書目表核對修正：\n- " + "\n- ".join(mismatches))
-
-            with st.expander(
-                "📝 書目與收費項目確認／微調（可直接在表格修改書名、科目、分組代號或單價）",
-                expanded=has_pdf_warning,
-            ):
-                st.write("系統已讀取以下書目與收費資料。若 PDF 辨識有個位數或分組代號需要微調，可直接點擊儲存格修改：")
-                if not df_books_clean.empty:
-                    source_sig = "|".join(
-                        f"{fb.name}:{len(fb.getvalue())}" for fb in file_books_list
-                    ) + f"|custom:{len(custom_books)}"
-                    edited_books_df = st.data_editor(
-                        df_books_clean[["publisher", "name", "subj", "code", "price", "qty"]],
-                        use_container_width=True,
-                        hide_index=True,
-                        num_rows="dynamic",
-                        column_config={
-                            "publisher": st.column_config.TextColumn("書商／來源"),
-                            "name": st.column_config.TextColumn("商品名稱"),
-                            "subj": st.column_config.SelectboxColumn("科目", options=["國", "英", "數", "自", "社會", "其他"]),
-                            "code": st.column_config.TextColumn("分組代號 (全班為 1)"),
-                            "price": st.column_config.NumberColumn("單價 (元)", min_value=0, step=1),
-                            "qty": st.column_config.NumberColumn("估價單數量", min_value=0, step=1),
-                        },
-                        key=f"tab2_books_editor_{source_sig}",
-                    )
-                    cleaned_rows = []
-                    for _, brow in edited_books_df.iterrows():
-                        bname = str(brow.get("name", "")).strip()
-                        bprice = safe_price(brow.get("price", 0))
-                        if bname and bname != "nan" and bprice > 0:
-                            bcode_raw = str(brow.get("code", "1")).strip()
-                            cleaned_rows.append({
-                                "name": bname,
-                                "price": int(bprice),
-                                "code": standardize_book_code(bcode_raw) if bcode_raw else "1",
-                                "qty": int(safe_price(brow.get("qty", 0))),
-                                "subj": str(brow.get("subj", "其他")).strip() or "其他",
-                                "publisher": str(brow.get("publisher", "")).strip() or "書商報價",
-                            })
-                    df_books_clean = pd.DataFrame(cleaned_rows) if cleaned_rows else pd.DataFrame()
-                else:
-                    st.warning("尚未讀取到有效之書目資料，請確認檔案格式。")
-
             st.divider()
             st.markdown("#### 步驟三：移除全班皆不需購買之書籍 (若無請跳過)")
             if not df_books_clean.empty:
@@ -2195,6 +1616,13 @@ with tab2:
             tab2_book_records = []
             if not df_books_clean.empty:
                 df_books_clean, tab2_book_records = attach_book_keys(df_books_clean, mode="tab2")
+
+            with st.expander("書目與收費項目預覽"):
+                st.write("系統已讀取以下書目與收費資料。若代號有缺漏，系統會自動嘗試依據人數與科目進行校正：")
+                if not df_books_clean.empty:
+                    st.dataframe(df_books_clean.drop(columns=["_book_key"], errors="ignore"))
+                else:
+                    st.warning("尚未讀取到有效之書目資料，請確認檔案格式。")
 
             tab2_excluded_pairs = set()
             tab2_plan = None
