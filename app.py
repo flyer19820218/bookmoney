@@ -142,12 +142,19 @@ def format_student_group_summary(student):
     math = student.get("math", "")
     sci = student.get("sci", "")
     gifted = student.get("gifted", "")
-    if eng not in ["", "1", "無", "免", "nan"]:
+    has_eng = eng not in ["", "1", "無", "免", "nan"]
+    has_math = math not in ["", "1", "無", "免", "nan"]
+    has_sci = sci not in ["", "1", "無", "免", "nan"]
+    if has_eng:
         parts.append(f"英:{eng}")
-    if math not in ["", "1", "無", "免", "nan"]:
-        parts.append(f"數:{math}")
-    if sci not in ["", "1", "無", "免", "nan"] and sci != math:
-        parts.append(f"自:{sci}")
+    if has_math and has_sci and sci == math:
+        shared = re.sub(r"^[數自]", "", math) or math
+        parts.append(f"數/自:{shared}")
+    else:
+        if has_math:
+            parts.append(f"數:{math}")
+        if has_sci:
+            parts.append(f"自:{sci}")
     if gifted not in ["", "1", "無", "免", "nan"]:
         parts.append(f"資優:{gifted}")
     return " / ".join(parts) if parts else "一般"
@@ -851,6 +858,11 @@ with tab2:
         width, height = A4
         pdf_font = 'CustomFont' if HAS_FONT else 'Helvetica'
         
+        class_has_sci_group = any(
+            str(r.get("自組", "無")).strip() not in ["", "1", "無", "免", "nan"]
+            for _, r in df_s_use.iterrows()
+        )
+        
         for _, student in df_s_use.iterrows():
             seat = normalize_seat(student.get("座號", ""))
             name = str(student.get("姓名", "")).strip()
@@ -874,13 +886,24 @@ with tab2:
 
             c.setFont(pdf_font, 24)
             c.drawCentredString(width/2, height - 80, "學 期 各 項 費 用 通 知 單")
-            s_eng_display = s_eng if s_eng not in ["1", "無", "免"] else "無"
-            s_math_display = s_math if s_math not in ["1", "無", "免"] else "無"
-            s_gifted_display = s_gifted if s_gifted not in ["1", "無", "免"] else "無"
+            s_eng_display = s_eng if s_eng not in ["1", "無", "免", ""] else "無"
+            s_math_display = s_math if s_math not in ["1", "無", "免", ""] else "無"
+            s_sci_display = s_sci if s_sci not in ["1", "無", "免", ""] else "無"
+            s_gifted_display = s_gifted if s_gifted not in ["1", "無", "免", ""] else "無"
+
+            if s_sci_display != "無" and s_sci_display == s_math_display:
+                shared_code = re.sub(r"^[數自]", "", s_math_display) or s_math_display
+                status_text = f"狀態：英({s_eng_display}) 數/自({shared_code}) 資優({s_gifted_display})"
+            elif s_sci_display != "無":
+                status_text = f"狀態：英({s_eng_display}) 數({s_math_display}) 自({s_sci_display}) 資優({s_gifted_display})"
+            elif class_has_sci_group:
+                status_text = f"狀態：英({s_eng_display}) 數/自({s_math_display}) 資優({s_gifted_display})"
+            else:
+                status_text = f"狀態：英({s_eng_display}) 數({s_math_display}) 資優({s_gifted_display})"
             
             c.setFont(pdf_font, 14)
             c.drawString(60, height - 130, f"座號：{seat}        姓名：{name}")
-            c.drawRightString(width - 60, height - 130, f"狀態：英({s_eng_display}) 數({s_math_display}) 資優({s_gifted_display})")
+            c.drawRightString(width - 60, height - 130, status_text)
             c.setStrokeColorRGB(0, 0, 0)
             c.setLineWidth(2)
             c.line(60, height - 145, width - 60, height - 145)

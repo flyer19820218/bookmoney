@@ -1080,9 +1080,17 @@
     function formatStudentGroupSummary(s) {
       const parts = [];
       const skip = new Set(["", "1", "無", "免", "nan"]);
-      if (!skip.has(s.eng)) parts.push(`英:${s.eng}`);
-      if (!skip.has(s.math)) parts.push(`數:${s.math}`);
-      if (!skip.has(s.sci) && s.sci !== s.math) parts.push(`自:${s.sci}`);
+      const hasEng = !skip.has(s.eng);
+      const hasMath = !skip.has(s.math);
+      const hasSci = !skip.has(s.sci);
+      if (hasEng) parts.push(`英:${s.eng}`);
+      if (hasMath && hasSci && s.sci === s.math) {
+        const shared = String(s.math).replace(/^[數自]/, "") || s.math;
+        parts.push(`數/自:${shared}`);
+      } else {
+        if (hasMath) parts.push(`數:${s.math}`);
+        if (hasSci) parts.push(`自:${s.sci}`);
+      }
       if (!skip.has(s.gifted)) parts.push(`資優:${s.gifted}`);
       return parts.length ? parts.join(" / ") : "一般";
     }
@@ -1964,13 +1972,30 @@
         const layout = $("printLayoutMode").value; // "one" or "two"
         const isTwo = layout === "two";
 
+        const classHasSciGroup = (latest.students || []).some(
+          st => !["1", "無", "免", ""].includes(st.sci)
+        );
+
         const html = targetStudents.map((s, idx) => {
           const buying = plan.studentBuying[s.key] || [];
           const excl = plan.studentExcluded[s.key] || [];
           const total = buying.reduce((a, b) => a + b.price, 0);
           const engDisp = ["1", "無", "免", ""].includes(s.eng) ? "無" : s.eng;
           const mathDisp = ["1", "無", "免", ""].includes(s.math) ? "無" : s.math;
+          const sciDisp = ["1", "無", "免", ""].includes(s.sci) ? "無" : s.sci;
           const giftDisp = ["1", "無", "免", ""].includes(s.gifted) ? "無" : s.gifted;
+
+          let groupStatusText = "";
+          if (sciDisp !== "無" && sciDisp === mathDisp) {
+            const shared = String(mathDisp).replace(/^[數自]/, "") || mathDisp;
+            groupStatusText = `狀態：英(${engDisp}) 數/自(${shared}) 資優(${giftDisp})`;
+          } else if (sciDisp !== "無") {
+            groupStatusText = `狀態：英(${engDisp}) 數(${mathDisp}) 自(${sciDisp}) 資優(${giftDisp})`;
+          } else if (classHasSciGroup) {
+            groupStatusText = `狀態：英(${engDisp}) 數/自(${mathDisp}) 資優(${giftDisp})`;
+          } else {
+            groupStatusText = `狀態：英(${engDisp}) 數(${mathDisp}) 資優(${giftDisp})`;
+          }
 
           // 項目多時自動微調字體確保不超出單頁
           let fontPt = isTwo ? 9.5 : 11;
@@ -1987,7 +2012,7 @@
                 <h1 class="rcp-title">學 期 各 項 費 用 通 知 單</h1>
                 <div class="rcp-meta">
                   <span>座號：${escHtml(s.seat)}　　姓名：${escHtml(s.name)}</span>
-                  <span>狀態：英(${escHtml(engDisp)}) 數(${escHtml(mathDisp)}) 資優(${escHtml(giftDisp)})</span>
+                  <span>${escHtml(groupStatusText)}</span>
                 </div>
                 <table class="rcp-table" style="font-size:${fontPt}pt;">
                   <thead>
