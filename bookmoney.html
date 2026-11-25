@@ -1218,7 +1218,7 @@
       return 0;
     }
 
-    async function readFileAsMatrix(file) {
+    async function readAllSheetsFromFile(file) {
       const buf = await file.arrayBuffer();
       const lower = file.name.toLowerCase();
       if (lower.endsWith(".csv")) {
@@ -1232,11 +1232,18 @@
             text = new TextDecoder("utf-8").decode(buf);
           }
         }
-        return parseCSVToMatrix(text);
+        return [{ sheetName: "", matrix: parseCSVToMatrix(text) }];
       }
       const wb = XLSX.read(buf, { type: "array" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      return wb.SheetNames.map(sheetName => ({
+        sheetName,
+        matrix: XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" }),
+      }));
+    }
+
+    async function readFileAsMatrix(file) {
+      const sheets = await readAllSheetsFromFile(file);
+      return sheets.length ? sheets[0].matrix : [];
     }
 
     function parseClassMatrix(matrix) {
@@ -1275,8 +1282,14 @@
       return students;
     }
 
-    function parseBookMatrix(matrix, fileName) {
-      let publisherName = fileName.replace(/\.[^.]+$/, "");
+    function parseBookMatrix(matrix, fileName, sheetName = "", totalSheets = 1) {
+      const baseFile = fileName.replace(/\.[^.]+$/, "");
+      const cleanSheet = String(sheetName || "").replace(/估價單|報價單/g, "").trim();
+      const isGenericSheet = !cleanSheet || /^(?:Sheet|工作表)\d*$/i.test(cleanSheet);
+      let publisherName = (totalSheets > 1 && !isGenericSheet)
+        ? cleanSheet
+        : (totalSheets > 1 && cleanSheet ? `${baseFile}_${cleanSheet}` : baseFile);
+
       const keywordsHeader = ["品名", "商品", "名稱", "單價", "價格", "金額", "數量", "件數"];
       let headerIdx = 0;
       for (let i = 0; i < matrix.length; i++) {
@@ -1293,7 +1306,8 @@
           .filter(v => v && v !== "nan")
           .join("");
         if (firstStr) {
-          publisherName = firstStr.replace(/估價單|報價單/g, "").trim() || publisherName;
+          const cleaned = firstStr.replace(/估價單|報價單/g, "").trim();
+          if (cleaned) publisherName = cleaned;
         }
       }
 
@@ -2171,13 +2185,21 @@
         }
         try {
           const all = [];
+          const sheetSummary = [];
           for (const f of files) {
-            const mat = await readFileAsMatrix(f);
-            all.push(...parseBookMatrix(mat, f.name));
+            const sheets = await readAllSheetsFromFile(f);
+            for (const sh of sheets) {
+              const parsed = parseBookMatrix(sh.matrix, f.name, sh.sheetName, sheets.length);
+              if (parsed.length) {
+                all.push(...parsed);
+                sheetSummary.push(`${parsed[0].publisher} ${parsed.length} 筆`);
+              }
+            }
           }
           state.rawUploadedBooks = all;
           $("boxBooks").classList.add("loaded");
-          $("statusBooks").textContent = `✅ 已載入 ${files.length} 份報價單（共 ${all.length} 筆書目）`;
+          const detailTxt = sheetSummary.length ? `（${sheetSummary.join("、")}，合計 ${all.length} 筆）` : `（共 ${all.length} 筆書目）`;
+          $("statusBooks").textContent = `✅ 已載入 ${files.length} 份報價單${detailTxt}`;
           renderAll();
         } catch (err) {
           showParseError(`讀取書商報價單失敗：${err.message}`);

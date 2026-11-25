@@ -1116,13 +1116,14 @@ with tab2:
             all_books_clean_list = []
             
             for fb in file_books_list:
-                publisher_name = fb.name.split('.')[0]
-                extracted_books = []
-                header_skip = 0
+                base_file_name = fb.name.rsplit('.', 1)[0]
                 keywords_header = ["品名", "商品", "名稱", "單價", "價格", "金額", "數量", "件數"]
-                
+                sheet_items = []
+
                 fb.seek(0)
-                if fb.name.endswith('.csv'):
+                if fb.name.lower().endswith('.csv'):
+                    publisher_name = base_file_name
+                    header_skip = 0
                     bytes_data = fb.read()
                     lines = []
                     used_enc = 'utf-8'
@@ -1139,60 +1140,90 @@ with tab2:
                     if header_skip > 0 and len(lines) > 0:
                         clean_first_line = lines[0].replace(',', '').strip()
                         if clean_first_line:
-                            publisher_name = clean_first_line.replace("估價單", "").replace("報價單", "").strip()
+                            publisher_name = clean_first_line.replace("估價單", "").replace("報價單", "").strip() or publisher_name
                             
                     fb.seek(0)
                     try: df_b = pd.read_csv(fb, skiprows=header_skip, encoding=used_enc).fillna("")
                     except: 
                         fb.seek(0)
                         df_b = pd.read_csv(fb, skiprows=header_skip, on_bad_lines='skip').fillna("")
-                
+                    sheet_items.append((publisher_name, df_b))
                 else:
-                    df_temp2 = pd.read_excel(fb, header=None).fillna("")
-                    for idx, row in df_temp2.iterrows():
-                        row_str = "".join([str(val) for val in row.values])
-                        if sum(1 for kw in keywords_header if kw in row_str) >= 2:
-                            header_skip = idx ; break
+                    # 讀取 Excel 內所有分頁（支援同一檔案多書商分頁）
+                    all_raw_sheets = pd.read_excel(fb, sheet_name=None, header=None)
+                    total_sheets = len(all_raw_sheets)
+                    for sheet_name, df_temp2 in all_raw_sheets.items():
+                        df_temp2 = df_temp2.fillna("")
+                        if df_temp2.empty:
+                            continue
+                        clean_sheet = str(sheet_name).replace("估價單", "").replace("報價單", "").strip()
+                        is_generic = (not clean_sheet) or bool(re.fullmatch(r"(?:Sheet|工作表)\d*", clean_sheet, re.I))
+                        if total_sheets > 1 and not is_generic:
+                            publisher_name = clean_sheet
+                        elif total_sheets > 1 and clean_sheet:
+                            publisher_name = f"{base_file_name}_{clean_sheet}"
+                        else:
+                            publisher_name = base_file_name
+
+                        header_skip = 0
+                        for idx, row in df_temp2.iterrows():
+                            row_str = "".join([str(val) for val in row.values])
+                            if sum(1 for kw in keywords_header if kw in row_str) >= 2:
+                                header_skip = idx ; break
+                                
+                        if header_skip > 0:
+                            first_row_str = "".join([str(val) for val in df_temp2.iloc[0].values if str(val).strip() and str(val) != "nan"])
+                            if first_row_str:
+                                cleaned_pub = first_row_str.replace("估價單", "").replace("報價單", "").strip()
+                                if cleaned_pub:
+                                    publisher_name = cleaned_pub
+                                
+                        fb.seek(0)
+                        df_b = pd.read_excel(fb, sheet_name=sheet_name, skiprows=header_skip).fillna("")
+                        sheet_items.append((publisher_name, df_b))
+
+                for publisher_name, df_b in sheet_items:
+                    if df_b.empty:
+                        continue
+                    extracted_books = []
+                    b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
+                    b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
+                    b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
+                    b_col_qty = find_column(df_b, ["數量", "量", "件數"], "數量")
+                    b_col_subj = find_column(df_b, ["科目", "類別"], "科目")
+
+                    if not b_col_name or not b_col_price:
+                        continue
+                    
+                    df_b['parsed_price'] = pd.to_numeric(df_b[b_col_price], errors='coerce')
+                    
+                    for i in range(len(df_b)):
+                        price_val = df_b['parsed_price'].iloc[i]
+                        if pd.notna(price_val) and price_val > 0: 
+                            raw_name = str(df_b[b_col_name].iloc[i]).strip()
+                            if not raw_name or re.match(r"^(?:合計|總計|總金額|總單價|小計|共計|總和)", raw_name):
+                                continue
+                            raw_note_cell = str(df_b[b_col_code].iloc[i]) if b_col_code else ""
+                            raw_code = standardize_book_code(raw_note_cell) if b_col_code else "1"
+                            raw_qty = df_b[b_col_qty].iloc[i] if b_col_qty else 0
+                            qty_val = pd.to_numeric(raw_qty, errors='coerce')
+                            qty_val = int(qty_val) if pd.notna(qty_val) else 0
                             
-                    if header_skip > 0:
-                        first_row_str = "".join([str(val) for val in df_temp2.iloc[0].values if str(val).strip() and str(val) != "nan"])
-                        if first_row_str:
-                            publisher_name = first_row_str.replace("估價單", "").replace("報價單", "").strip()
-                            
-                    fb.seek(0)
-                    df_b = pd.read_excel(fb, skiprows=header_skip).fillna("")
+                            raw_subj_cell = str(df_b[b_col_subj].iloc[i]).strip() if b_col_subj else ""
+                            subj_val = raw_subj_cell if raw_subj_cell else infer_subject(raw_name, raw_note_cell)
 
-                b_col_name = find_column(df_b, ["品名", "商品", "名稱", "書籍"], "商品名稱")
-                b_col_price = find_column(df_b, ["單價", "價格", "金額"], "單價")
-                b_col_code = find_column(df_b, ["附記", "備註", "分組", "代號"], "分組代號")
-                b_col_qty = find_column(df_b, ["數量", "量", "件數"], "數量")
-                b_col_subj = find_column(df_b, ["科目", "類別"], "科目")
-                
-                df_b['parsed_price'] = pd.to_numeric(df_b[b_col_price], errors='coerce')
-                
-                for i in range(len(df_b)):
-                    price_val = df_b['parsed_price'].iloc[i]
-                    if pd.notna(price_val) and price_val > 0: 
-                        raw_name = str(df_b[b_col_name].iloc[i])
-                        raw_code = standardize_book_code(df_b[b_col_code].iloc[i]) if b_col_code else "1"
-                        raw_qty = df_b[b_col_qty].iloc[i] if b_col_qty else 0
-                        qty_val = pd.to_numeric(raw_qty, errors='coerce')
-                        qty_val = int(qty_val) if pd.notna(qty_val) else 0
-                        
-                        subj_val = str(df_b[b_col_subj].iloc[i]) if b_col_subj else infer_subject(raw_name, raw_code)
+                            extracted_books.append({
+                                'name': raw_name,
+                                'price': int(price_val),
+                                'code': raw_code,
+                                'qty': qty_val,
+                                'subj': subj_val,
+                                'publisher': publisher_name
+                            })
 
-                        extracted_books.append({
-                            'name': raw_name,
-                            'price': int(price_val),
-                            'code': raw_code,
-                            'qty': qty_val,
-                            'subj': subj_val,
-                            'publisher': publisher_name
-                        })
-
-                if extracted_books:
-                    df_temp_clean = pd.DataFrame(extracted_books)
-                    all_books_clean_list.append(df_temp_clean)
+                    if extracted_books:
+                        df_temp_clean = pd.DataFrame(extracted_books)
+                        all_books_clean_list.append(df_temp_clean)
             
             custom_books = []
             for _, row in edited_custom_fees.iterrows():
