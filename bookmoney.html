@@ -1,0 +1,2147 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>班級購書與費用對帳系統（離線 HTML5 版）</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+          onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';document.head.appendChild(s);"></script>
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --border: #dfe5ec;
+      --text: #1f2937;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eff6ff;
+      --success: #059669;
+      --success-soft: #ecfdf5;
+      --warn: #d97706;
+      --warn-soft: #fffbeb;
+      --danger: #dc2626;
+      --danger-soft: #fef2f2;
+      --radius: 12px;
+      --shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 24px 16px 64px;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      font-size: 15px;
+    }
+
+    .container {
+      max-width: 1020px;
+      margin: 0 auto;
+    }
+
+    header.app-header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+      color: #fff;
+      padding: 24px 28px;
+      border-radius: 16px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 24px rgba(37, 99, 235, 0.18);
+    }
+
+    header.app-header h1 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      letter-spacing: 0.5px;
+    }
+
+    header.app-header p {
+      margin: 0;
+      font-size: 14px;
+      opacity: 0.92;
+    }
+
+    .privacy-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .step-badge {
+      display: inline-block;
+      background: var(--primary);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 2px 9px;
+      border-radius: 999px;
+    }
+
+    .info-box {
+      background: var(--primary-soft);
+      border-left: 4px solid var(--primary);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #1e3a8a;
+      margin-bottom: 16px;
+    }
+
+    .info-box ol {
+      margin: 6px 0 4px 20px;
+      padding: 0;
+    }
+
+    .warn-box {
+      background: var(--warn-soft);
+      border-left: 4px solid var(--warn);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #92400e;
+      margin: 10px 0;
+    }
+
+    .success-box {
+      background: var(--success-soft);
+      border-left: 4px solid var(--success);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #065f46;
+      margin: 10px 0;
+    }
+
+    .upload-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    @media (max-width: 720px) {
+      .upload-grid { grid-template-columns: 1fr; }
+    }
+
+    .upload-box {
+      border: 1.5px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 14px;
+      background: #f8fafc;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .upload-box.loaded {
+      border-style: solid;
+      border-color: var(--success);
+      background: #f0fdf4;
+    }
+
+    .upload-box label.title {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 6px;
+      font-size: 14px;
+      color: #0f172a;
+    }
+
+    .upload-box input[type="file"] {
+      width: 100%;
+      font-size: 13px;
+    }
+
+    .upload-status {
+      margin-top: 6px;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    .upload-box.loaded .upload-status {
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    .caption {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 4px 0 10px;
+    }
+
+    /* Buttons */
+    button, .btn {
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.05s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    button:hover { background: #f1f5f9; }
+    button:active { transform: translateY(1px); }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover { background: var(--primary-hover); }
+
+    .btn-success {
+      background: var(--success);
+      color: #fff;
+      border-color: var(--success);
+    }
+    .btn-success:hover { background: #047857; }
+
+    .btn-danger-outline {
+      color: var(--danger);
+      border-color: #fecaca;
+      background: #fff;
+    }
+    .btn-danger-outline:hover { background: var(--danger-soft); }
+
+    .btn-sm {
+      padding: 5px 10px;
+      font-size: 13px;
+    }
+
+    /* Tables */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+
+    th, td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      background: #f8fafc;
+      font-weight: 700;
+      color: #334155;
+      white-space: nowrap;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.center, th.center { text-align: center; }
+
+    /* Custom fees editor inputs */
+    .fee-input, .fee-select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13.5px;
+      background: #fff;
+    }
+
+    /* Collapsible details */
+    details.panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-top: 12px;
+      background: #fcfdff;
+    }
+
+    details.panel summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 14px;
+      color: #1e293b;
+      user-select: none;
+    }
+
+    /* Pills for whole-class book removal */
+    .pill-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .pill-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 11px;
+      border-radius: 999px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .pill-item.removed {
+      background: var(--danger-soft);
+      border-color: #fca5a5;
+      color: var(--danger);
+      text-decoration: line-through;
+    }
+
+    /* Mode toggle & exclusion grid */
+    .radio-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .radio-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      background: #f8fafc;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .radio-chip.active {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .form-select, .form-input {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      background: #fff;
+    }
+
+    .form-select:focus, .form-input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .check-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    @media (max-width: 780px) {
+      .check-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px) {
+      .check-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    .check-grid.single-col {
+      grid-template-columns: 1fr;
+    }
+
+    .check-card {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      user-select: none;
+      transition: background 0.12s, border-color 0.12s;
+    }
+
+    .check-card:hover { background: #f8fafc; }
+
+    .check-card.checked {
+      background: var(--danger-soft);
+      border-color: #f87171;
+      color: #991b1b;
+      font-weight: 600;
+    }
+
+    .check-card input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--danger);
+      margin: 0;
+      flex: 0 0 auto;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin: 10px 0;
+    }
+
+    /* Metrics */
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    @media (max-width: 640px) {
+      .metrics { grid-template-columns: 1fr; }
+    }
+
+    .metric-card {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+    }
+
+    .metric-label { font-size: 13px; color: var(--muted); }
+    .metric-value { font-size: 24px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+    .metric-sub { font-size: 12.5px; color: var(--danger); font-weight: 600; margin-top: 2px; }
+
+    /* Sub-tabs */
+    .sub-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 14px;
+    }
+
+    .sub-tab {
+      border: none;
+      border-bottom: 3px solid transparent;
+      border-radius: 6px 6px 0 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 8px 14px;
+      margin-bottom: -2px;
+      font-size: 14px;
+    }
+
+    .sub-tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      background: var(--primary-soft);
+    }
+
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .filter-row .form-input {
+      max-width: 280px;
+    }
+
+    .action-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .action-grid button {
+      padding: 12px 20px;
+      font-size: 15px;
+    }
+
+    .tag-excl {
+      display: inline-block;
+      background: var(--danger-soft);
+      color: var(--danger);
+      border-radius: 6px;
+      padding: 2px 7px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tag-ok {
+      display: inline-block;
+      background: var(--success-soft);
+      color: var(--success);
+      border-radius: 6px;
+      padding: 2px 7px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .hidden { display: none !important; }
+
+    /* =====================================================
+       列印用 A4 家長通知單樣式（畫面隱藏，列印／存PDF顯示）
+       ===================================================== */
+    #printArea {
+      display: none;
+    }
+
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 12mm 14mm;
+      }
+
+      body {
+        background: #fff !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        color: #000 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .no-print {
+        display: none !important;
+      }
+
+      #printArea {
+        display: block !important;
+      }
+
+      .receipt-page {
+        page-break-after: always;
+        break-after: page;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 268mm;
+        padding: 4mm 2mm;
+        font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+        color: #000;
+      }
+
+      .receipt-page:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+
+      .receipt-page.two-up {
+        min-height: auto;
+        height: 132mm;
+        border-bottom: 1px dashed #999;
+        padding: 3mm 2mm 4mm;
+        page-break-after: auto;
+        break-after: auto;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+
+      .receipt-page.two-up.pair-end {
+        border-bottom: none;
+        page-break-after: always;
+        break-after: page;
+      }
+
+      .receipt-page.two-up:last-child {
+        border-bottom: none;
+        page-break-after: auto;
+        break-after: auto;
+      }
+
+      .rcp-title {
+        text-align: center;
+        font-size: 22pt;
+        font-weight: 700;
+        letter-spacing: 6px;
+        margin: 0 0 10mm;
+      }
+
+      .receipt-page.two-up .rcp-title {
+        font-size: 16pt;
+        letter-spacing: 4px;
+        margin: 0 0 4mm;
+      }
+
+      .rcp-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        font-size: 12.5pt;
+        font-weight: 600;
+        padding-bottom: 3mm;
+        border-bottom: 2px solid #000;
+      }
+
+      .receipt-page.two-up .rcp-meta {
+        font-size: 10.5pt;
+        padding-bottom: 1.5mm;
+      }
+
+      .rcp-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 3mm;
+      }
+
+      .rcp-table th {
+        background: transparent !important;
+        border-bottom: 1px solid #000;
+        padding: 2mm 2mm;
+        font-size: 11pt;
+        color: #000;
+      }
+
+      .rcp-table td {
+        border-bottom: 1px dotted #d1d5db;
+        padding: 1.6mm 2mm;
+        color: #000;
+      }
+
+      .rcp-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .rcp-total-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        border-top: 1.5px solid #000;
+        margin-top: 3mm;
+        padding-top: 3mm;
+        font-size: 15pt;
+        font-weight: 700;
+      }
+
+      .receipt-page.two-up .rcp-total-row {
+        font-size: 12.5pt;
+        margin-top: 2mm;
+        padding-top: 2mm;
+      }
+
+      .rcp-total-amt {
+        color: #c81e1e;
+      }
+
+      .rcp-excl-note {
+        margin-top: 2.5mm;
+        font-size: 9pt;
+        color: #4b5563;
+        line-height: 1.45;
+      }
+
+      .rcp-footer {
+        margin-top: 8mm;
+        padding-top: 4mm;
+        border-top: 1px dashed #9ca3af;
+        font-size: 10.5pt;
+      }
+
+      .receipt-page.two-up .rcp-footer {
+        margin-top: 3mm;
+        padding-top: 2mm;
+        font-size: 9.5pt;
+      }
+
+      .rcp-sign-line {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 4mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container no-print">
+    <header class="app-header">
+      <h1>📚 班級購書與費用對帳系統</h1>
+      <p>上傳班級名單與書商報價單（Excel / CSV），自動計算分組書目、個別免購扣除，一鍵列印 A4 家長通知單與下載 Excel 對帳總表。</p>
+      <div class="privacy-badge">🔒 純 HTML5 本機運算・學生個資絕不上傳雲端・隨時開啟永不休眠</div>
+    </header>
+
+    <!-- 步驟一：上傳檔案 -->
+    <section class="card">
+      <h2><span class="step-badge">步驟一</span> 上傳名單與報價單</h2>
+      <div class="info-box">
+        <strong>【使用說明】</strong>
+        <ol>
+          <li>至「台中市教育雲端系統」下載 <strong>班級名條</strong>（若有分組教學，一併下載英文／數學分組名條）。</li>
+          <li>向各家書商索取或以 AI 轉換之 <strong>報價單 CSV 或 Excel 檔</strong>（可一次多選多份）。</li>
+          <li>一年級免分組，只需上傳「1. 班級總名單」與「2. 書商報價單」即可自動產出全班明細。</li>
+        </ol>
+      </div>
+
+      <div class="upload-grid">
+        <div class="upload-box" id="boxClass">
+          <label class="title" for="fileClass">1. 班級總名單（Excel 檔，必填）</label>
+          <input type="file" id="fileClass" accept=".xlsx,.xls" />
+          <div class="upload-status" id="statusClass">尚未選擇檔案</div>
+        </div>
+        <div class="upload-box" id="boxBooks">
+          <label class="title" for="fileBooks">2. 書商報價單（可多選 CSV / Excel，必填）</label>
+          <input type="file" id="fileBooks" accept=".csv,.xlsx,.xls" multiple />
+          <div class="upload-status" id="statusBooks">尚未選擇檔案</div>
+        </div>
+        <div class="upload-box" id="boxEng">
+          <label class="title" for="fileEng">3. 英文分組名單（選填）</label>
+          <input type="file" id="fileEng" accept=".csv,.xlsx,.xls" />
+          <div class="upload-status" id="statusEng">未上傳（若無英文分組免填）</div>
+        </div>
+        <div class="upload-box" id="boxMath">
+          <label class="title" for="fileMath">4. 數學／自然分組名單（選填）</label>
+          <input type="file" id="fileMath" accept=".csv,.xlsx,.xls" />
+          <div class="upload-status" id="statusMath">未上傳（若讀到 9 或 3 開頭三年級名單，自動連動自然同組）</div>
+        </div>
+      </div>
+
+      <div id="parseErrorBox" class="warn-box hidden"></div>
+
+      <details class="panel hidden" id="studentPreviewPanel">
+        <summary id="studentPreviewSummary">名單與分組狀態預覽</summary>
+        <div class="table-wrap" id="studentPreviewTable"></div>
+      </details>
+    </section>
+
+    <!-- 步驟二：新增其他收費 -->
+    <section class="card">
+      <h2><span class="step-badge">步驟二</span> 新增其他收費（選填）</h2>
+      <p class="caption">若無其他收費請留空。全班性收費分組代號填 <code>1</code>；若為特定分組請填代號（如 <code>5A</code>）。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:38%;">商品名稱</th>
+              <th style="width:16%;">科目分類</th>
+              <th style="width:20%;">分組代號（全班填 1）</th>
+              <th style="width:16%;">每人單價（元）</th>
+              <th style="width:10%;" class="center">操作</th>
+            </tr>
+          </thead>
+          <tbody id="customFeesBody"></tbody>
+        </table>
+      </div>
+      <div class="toolbar">
+        <button type="button" class="btn-sm" id="btnAddFee">＋ 新增一列自訂收費</button>
+      </div>
+    </section>
+
+    <!-- 動態主作業區（上傳班級名單與報價單後出現） -->
+    <div id="workspaceArea" class="hidden">
+
+      <!-- 步驟三：全班不買書籍剔除 -->
+      <section class="card">
+        <h2><span class="step-badge">步驟三</span> 移除全班皆不需購買之書籍（若無請跳過）</h2>
+        <p class="caption">點擊下方書名即可剔除（紅底刪除線代表全班不購買，再點一次可還原）。</p>
+        <div class="pill-grid" id="removeBooksPills"></div>
+        <details class="panel">
+          <summary id="booksPreviewSummary">書目與收費項目預覽</summary>
+          <div class="table-wrap" id="booksPreviewTable"></div>
+        </details>
+      </section>
+
+      <!-- 步驟四：個別學生已自購免購勾選 + 即時預覽 -->
+      <section class="card">
+        <h2><span class="step-badge">步驟四</span> 個別學生「已自購／不購買」勾選與書目預覽</h2>
+        <p class="caption">若有學生已經先買過某本書，直接在下方勾選即可立即扣除該生費用與訂購數量（純本機即時反應，絕不跳動）。</p>
+
+        <div class="radio-bar" id="exclModeBar">
+          <label class="radio-chip active" data-mode="byBook">
+            <input type="radio" name="exclMode" value="byBook" checked style="display:none;" />
+            📘 依書目勾選（這本書誰不買）
+          </label>
+          <label class="radio-chip" data-mode="byStudent">
+            <input type="radio" name="exclMode" value="byStudent" style="display:none;" />
+            🧑‍🎓 依學生勾選（這位學生哪些書不買）
+          </label>
+        </div>
+
+        <div id="exclControlArea"></div>
+
+        <details class="panel hidden" id="exclSummaryPanel" open>
+          <summary id="exclSummaryTitle">📌 目前已勾選免購項目</summary>
+          <div class="table-wrap" id="exclSummaryTable"></div>
+          <div class="toolbar">
+            <button type="button" class="btn-sm btn-danger-outline" id="btnClearAllExcl">🗑️ 清除全部免購勾選</button>
+          </div>
+        </details>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:20px 0;" />
+
+        <h3 style="margin:0 0 12px;font-size:16px;">👀 個別學生名單與書目預覽（免列印直接查看）</h3>
+        <div class="metrics" id="metricsBar"></div>
+
+        <div class="sub-tabs" id="previewTabs">
+          <button type="button" class="sub-tab active" data-tab="roster">📋 全班個別書目總表</button>
+          <button type="button" class="sub-tab" data-tab="single">🔍 單一學生明細檢視</button>
+          <button type="button" class="sub-tab" data-tab="books">📚 各書目購買人數統計</button>
+        </div>
+
+        <!-- 子分頁 1：全班總表 -->
+        <div id="previewTabRoster">
+          <div class="filter-row">
+            <input type="text" class="form-input" id="searchStudent" placeholder="搜尋座號或姓名（例如：03 或 王小明）" />
+            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
+              <input type="checkbox" id="filterOnlyExcl" /> 僅顯示有排除免購的學生
+            </label>
+          </div>
+          <div class="table-wrap" id="rosterPreviewTable"></div>
+        </div>
+
+        <!-- 子分頁 2：單一學生檢視 -->
+        <div id="previewTabSingle" class="hidden">
+          <div class="filter-row">
+            <select class="form-select" id="inspectStudentSelect" style="max-width:420px;"></select>
+            <button type="button" class="btn-sm" id="btnPrintSingle">🖨️ 只列印這位學生通知單</button>
+          </div>
+          <div id="singleStudentDetail"></div>
+        </div>
+
+        <!-- 子分頁 3：各書目統計 -->
+        <div id="previewTabBooks" class="hidden">
+          <div class="table-wrap" id="bookStatsTable"></div>
+        </div>
+      </section>
+
+      <!-- 步驟五：列印 PDF 與下載 Excel -->
+      <section class="card">
+        <h2><span class="step-badge">步驟五</span> 列印家長通知單（PDF）與下載導師對帳總表（Excel）</h2>
+        <div class="toolbar">
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;margin-right:16px;">
+            <input type="checkbox" id="chkShowExclNote" checked />
+            在通知單上註明「已自購免購（不計費）」書目
+          </label>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:14px;">
+            通知單版面：
+            <select id="printLayoutMode" class="fee-select" style="width:auto;">
+              <option value="one">每頁 1 張（標準大字 A4）</option>
+              <option value="two">每頁 2 張（省紙半頁 A4）</option>
+            </select>
+          </label>
+        </div>
+        <div class="action-grid">
+          <button type="button" class="btn-primary" id="btnPrintAll">🖨️ 列印／另存【家長通知單 PDF】</button>
+          <button type="button" class="btn-success" id="btnDownloadExcel">📥 下載【導師對帳總表】(.xlsx)</button>
+        </div>
+        <p class="caption" style="margin-top:10px;">
+          💡 點擊「列印／另存家長通知單 PDF」後，在瀏覽器列印視窗將目的地選為「另存為 PDF」即可存成 PDF 檔，或直接送印表機列印。
+        </p>
+      </section>
+    </div>
+
+    <div id="emptyHint" class="card" style="text-align:center;color:var(--muted);padding:32px;">
+      請先於上方「步驟一」依序上傳 <strong>1. 班級總名單</strong> 與 <strong>2. 書商報價單</strong>，系統將立即自動計算並顯示完整預覽畫面。
+    </div>
+  </div>
+
+  <!-- 列印專區（僅於列印時顯示） -->
+  <div id="printArea"></div>
+
+  <script>
+    // =========================================================================
+    // 核心純計算邏輯（與 app.py 分頁 2 規則 100% 一致）
+    // =========================================================================
+    function escHtml(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function normalizeSeat(val) {
+      const s = String(val == null ? "" : val).trim();
+      if (!s || s === "nan" || s === "None") return "";
+      if (/^\d+\.0+$/.test(s)) return s.split(".")[0];
+      return s;
+    }
+
+    function safePrice(val) {
+      const n = Number(String(val == null ? "" : val).replace(/,/g, "").trim());
+      if (!Number.isFinite(n) || n < 0) return 0;
+      return Math.abs(n - Math.round(n)) < 1e-6 ? Math.round(n) : n;
+    }
+
+    function findColumn(headers, keywords) {
+      for (const col of headers) {
+        const s = String(col == null ? "" : col);
+        if (keywords.some(kw => s.includes(kw))) return col;
+      }
+      return null;
+    }
+
+    function inferSubject(name, code = "") {
+      const n = String(name || "").replace(/國中/g, "").replace(/國小/g, "");
+      if (["英", "文法", "單字", "聽力", "ABC", "abc"].some(k => n.includes(k))) return "英";
+      if (["數", "幾何", "代數", "算"].some(k => n.includes(k))) return "數";
+      if (["自", "理化", "生物", "地科", "科學"].some(k => n.includes(k))) return "自";
+      if (["歷", "地", "公", "社會"].some(k => n.includes(k))) return "社會";
+      if (["國", "文", "閱讀"].some(k => n.includes(k))) return "國";
+
+      const c = String(code || "").replace(/\s+/g, "").toUpperCase();
+      if (c.includes("英")) return "英";
+      if (c.includes("數")) return "數";
+      if (c.includes("自")) return "自";
+      return "其他";
+    }
+
+    function standardizeBookCode(val) {
+      const s = String(val == null ? "" : val).trim();
+      if (["1", "全", "", "nan", "None", "無"].includes(s)) return "1";
+      const match = s.match(/(\d+).*?([A-Za-z])/);
+      if (match) {
+        let clsNum = parseInt(match[1], 10);
+        if (clsNum >= 100) clsNum = clsNum % 100;
+        return `${clsNum}${match[2].toUpperCase()}`;
+      }
+      const matchAlpha = s.match(/[A-Za-z]/);
+      if (matchAlpha) return matchAlpha[0].toUpperCase();
+      return s;
+    }
+
+    function parseHorizontalGroupMatrix(matrix, subjHint = "") {
+      let headerIdx = -1;
+      for (let i = 0; i < matrix.length; i++) {
+        const row = matrix[i] || [];
+        if (row.some(v => typeof v === "string" && v.includes("姓名"))) {
+          headerIdx = i;
+          break;
+        }
+      }
+      const mapping = {};
+      if (headerIdx === -1) return mapping;
+
+      const maxCols = Math.max(...matrix.map(r => (r ? r.length : 0)), 0);
+      const colToGroup = {};
+      let currentGroup = "無";
+      let currentGrade = 0;
+
+      for (let colIdx = 0; colIdx < maxCols; colIdx++) {
+        for (let r = 0; r < headerIdx; r++) {
+          const val = String((matrix[r] && matrix[r][colIdx]) != null ? matrix[r][colIdx] : "").trim();
+          if (val && val !== "nan") {
+            const matchNumAlpha = val.match(/(\d+).*?([A-Za-z])/);
+            if (matchNumAlpha) {
+              let clsNum = parseInt(matchNumAlpha[1], 10);
+              currentGrade = Math.floor(clsNum / 100);
+              if (clsNum >= 100) clsNum = clsNum % 100;
+              currentGroup = `${subjHint}${clsNum}${matchNumAlpha[2].toUpperCase()}`;
+            } else {
+              const matchAlpha = val.match(/[A-Za-z]/);
+              if (matchAlpha) currentGroup = `${subjHint}${matchAlpha[0].toUpperCase()}`;
+              else if (val.length <= 4) currentGroup = val;
+            }
+          }
+        }
+        colToGroup[colIdx] = [currentGroup, currentGrade];
+      }
+
+      const headerRow = matrix[headerIdx] || [];
+      for (let colIdx = 0; colIdx < maxCols; colIdx++) {
+        if (String(headerRow[colIdx] || "").includes("姓名")) {
+          const groupInfo = colToGroup[colIdx] || ["無", 0];
+          for (let r = headerIdx + 1; r < matrix.length; r++) {
+            const raw = String((matrix[r] && matrix[r][colIdx]) != null ? matrix[r][colIdx] : "").trim();
+            const cleanName = raw.replace(/\s+/g, "");
+            if (cleanName && cleanName !== "nan") {
+              mapping[cleanName] = groupInfo;
+            }
+          }
+        }
+      }
+      return mapping;
+    }
+
+    function checkGroupMatch(sGrp, bCode) {
+      if (["1", "無", "免", ""].includes(sGrp)) return false;
+      const bClean = String(bCode || "").trim().toUpperCase();
+      const sClean = String(sGrp || "").trim().toUpperCase();
+      if (sClean === bClean) return true;
+
+      const sMatch = sClean.match(/(\d*)([A-Z]+)/);
+      const bMatch = bClean.match(/(\d*)([A-Z]+)/);
+      if (sMatch && bMatch) {
+        const [, sNum, sLetter] = sMatch;
+        const [, bNum, bLetter] = bMatch;
+        if (sLetter !== bLetter) return false;
+        if (bNum && sNum && bNum !== sNum) return false;
+        return true;
+      }
+      return false;
+    }
+
+    function autoCorrectGroupCode(books, students) {
+      const countBy = (field) => {
+        const map = {};
+        for (const s of students) {
+          const v = String(s[field] || "").trim();
+          if (!["無", "免", "1", ""].includes(v)) {
+            map[v] = (map[v] || 0) + 1;
+          }
+        }
+        return map;
+      };
+      const counts = {
+        "英": countBy("eng"),
+        "數": countBy("math"),
+        "自": countBy("sci"),
+      };
+      return books.map(b => {
+        const bCode = String(b.code || "").trim().toUpperCase();
+        const bSubj = String(b.subj || "");
+        const bQty = b.qty || 0;
+        if (bQty > 0 && /^[A-Z]$/.test(bCode) && counts[bSubj]) {
+          const possible = [];
+          for (const [grpName, grpCount] of Object.entries(counts[bSubj])) {
+            if (grpCount === bQty && grpName.includes(bCode)) possible.push(grpName);
+          }
+          if (possible.length === 1) {
+            return { ...b, code: possible[0] };
+          }
+        }
+        return b;
+      });
+    }
+
+    function isBookForStudent(bSubj, bCode, sEng, sMath, sSci, sGifted) {
+      if (sGifted === "語資" && ["國", "英"].includes(bSubj)) return false;
+      if (sGifted === "數資" && ["數", "自"].includes(bSubj)) return false;
+      if (sGifted.includes("語資") && sGifted.includes("數資") && ["國", "英", "數", "自"].includes(bSubj)) return false;
+
+      if (bCode === "1") return true;
+      if (bSubj === "英") return checkGroupMatch(sEng, bCode);
+      if (bSubj === "數") return checkGroupMatch(sMath, bCode);
+      if (bSubj === "自") return checkGroupMatch(sSci, bCode);
+      return checkGroupMatch(sEng, bCode) || checkGroupMatch(sMath, bCode);
+    }
+
+    function formatStudentGroupSummary(s) {
+      const parts = [];
+      const skip = new Set(["", "1", "無", "免", "nan"]);
+      if (!skip.has(s.eng)) parts.push(`英:${s.eng}`);
+      if (!skip.has(s.math)) parts.push(`數:${s.math}`);
+      if (!skip.has(s.sci) && s.sci !== s.math) parts.push(`自:${s.sci}`);
+      if (!skip.has(s.gifted)) parts.push(`資優:${s.gifted}`);
+      return parts.length ? parts.join(" / ") : "一般";
+    }
+
+    function assignStudentKeys(students) {
+      const occ = {};
+      return students.map(s => {
+        const seat = normalizeSeat(s.seat);
+        const name = String(s.name || "").trim();
+        const base = `${seat}|${name}`;
+        occ[base] = (occ[base] || 0) + 1;
+        return {
+          ...s,
+          seat,
+          name,
+          key: `${base}#${occ[base]}`,
+          label: seat ? `${seat}號 ${name}` : name,
+        };
+      });
+    }
+
+    function assignBookKeys(books) {
+      const occ = {};
+      return books.map(b => {
+        const subj = ["歷", "地", "公", "歷史", "地理", "公民", "社會三科"].includes(b.subj) ? "社會" : b.subj;
+        const base = `${b.publisher}|${subj}|${b.code}|${b.name}|${b.price}`;
+        occ[base] = (occ[base] || 0) + 1;
+        return {
+          ...b,
+          subj,
+          key: `${base}#${occ[base]}`,
+        };
+      });
+    }
+
+    function computePlan(students, books, excludedSet) {
+      const studentBuying = {};
+      const studentExcluded = {};
+      const studentEligible = {};
+      const bookBuying = {};
+      const bookExcluded = {};
+      const bookEligible = {};
+
+      for (const s of students) {
+        studentBuying[s.key] = [];
+        studentExcluded[s.key] = [];
+        studentEligible[s.key] = [];
+      }
+      for (const b of books) {
+        bookBuying[b.key] = [];
+        bookExcluded[b.key] = [];
+        bookEligible[b.key] = [];
+      }
+
+      for (const s of students) {
+        for (const b of books) {
+          if (isBookForStudent(b.subj, b.code, s.eng, s.math, s.sci, s.gifted)) {
+            studentEligible[s.key].push(b);
+            bookEligible[b.key].push(s);
+            const pairKey = `${s.key}||${b.key}`;
+            if (excludedSet.has(pairKey)) {
+              studentExcluded[s.key].push(b);
+              bookExcluded[b.key].push(s);
+            } else {
+              studentBuying[s.key].push(b);
+              bookBuying[b.key].push(s);
+            }
+          }
+        }
+      }
+
+      return { studentBuying, studentExcluded, studentEligible, bookBuying, bookExcluded, bookEligible };
+    }
+
+    // =========================================================================
+    // 檔案解析（CSV 支援 UTF-8 / Big5；Excel 使用 SheetJS）
+    // =========================================================================
+    async function readFileAsMatrix(file) {
+      const buf = await file.arrayBuffer();
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith(".csv")) {
+        let text = "";
+        try {
+          text = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+        } catch {
+          try {
+            text = new TextDecoder("big5").decode(buf);
+          } catch {
+            text = new TextDecoder("utf-8").decode(buf);
+          }
+        }
+        const wb = XLSX.read(text, { type: "string", raw: false });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      }
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    }
+
+    function parseClassMatrix(matrix) {
+      let headerIdx = 0;
+      for (let i = 0; i < matrix.length; i++) {
+        const row = matrix[i] || [];
+        if (row.some(v => String(v || "").includes("姓名"))) {
+          headerIdx = i;
+          break;
+        }
+      }
+      const headers = (matrix[headerIdx] || []).map(h => String(h == null ? "" : h).trim());
+      const cName = findColumn(headers, ["姓名", "名稱", "學生"]);
+      const cSeat = findColumn(headers, ["座號", "號碼", "序號"]);
+      const idxName = cName ? headers.indexOf(cName) : -1;
+      const idxSeat = cSeat ? headers.indexOf(cSeat) : -1;
+      const idxEng = headers.indexOf("英組");
+      const idxMath = headers.indexOf("數組");
+      const idxSci = headers.indexOf("自組");
+      const idxGifted = headers.indexOf("資優類別");
+
+      const students = [];
+      for (let r = headerIdx + 1; r < matrix.length; r++) {
+        const row = matrix[r] || [];
+        const name = idxName >= 0 ? String(row[idxName] == null ? "" : row[idxName]).trim() : "";
+        if (!name) continue;
+        students.push({
+          seat: idxSeat >= 0 ? normalizeSeat(row[idxSeat]) : String(students.length + 1),
+          name,
+          eng: idxEng >= 0 && String(row[idxEng] || "").trim() ? String(row[idxEng]).trim() : "無",
+          math: idxMath >= 0 && String(row[idxMath] || "").trim() ? String(row[idxMath]).trim() : "無",
+          sci: idxSci >= 0 && String(row[idxSci] || "").trim() ? String(row[idxSci]).trim() : "無",
+          gifted: idxGifted >= 0 && String(row[idxGifted] || "").trim() ? String(row[idxGifted]).trim() : "無",
+        });
+      }
+      return students;
+    }
+
+    function parseBookMatrix(matrix, fileName) {
+      let publisherName = fileName.replace(/\.[^.]+$/, "");
+      const keywordsHeader = ["品名", "商品", "名稱", "單價", "價格", "金額", "數量", "件數"];
+      let headerIdx = 0;
+      for (let i = 0; i < matrix.length; i++) {
+        const rowStr = (matrix[i] || []).map(v => String(v == null ? "" : v)).join("");
+        const hits = keywordsHeader.filter(kw => rowStr.includes(kw)).length;
+        if (hits >= 2) {
+          headerIdx = i;
+          break;
+        }
+      }
+      if (headerIdx > 0 && matrix[0]) {
+        const firstStr = matrix[0]
+          .map(v => String(v == null ? "" : v).trim())
+          .filter(v => v && v !== "nan")
+          .join("");
+        if (firstStr) {
+          publisherName = firstStr.replace(/估價單|報價單/g, "").trim() || publisherName;
+        }
+      }
+
+      const headers = (matrix[headerIdx] || []).map(h => String(h == null ? "" : h).trim());
+      const cName = findColumn(headers, ["品名", "商品", "名稱", "書籍"]);
+      const cPrice = findColumn(headers, ["單價", "價格", "金額"]);
+      const cCode = findColumn(headers, ["附記", "備註", "分組", "代號"]);
+      const cQty = findColumn(headers, ["數量", "量", "件數"]);
+      const cSubj = findColumn(headers, ["科目", "類別"]);
+
+      const iName = cName ? headers.indexOf(cName) : -1;
+      const iPrice = cPrice ? headers.indexOf(cPrice) : -1;
+      const iCode = cCode ? headers.indexOf(cCode) : -1;
+      const iQty = cQty ? headers.indexOf(cQty) : -1;
+      const iSubj = cSubj ? headers.indexOf(cSubj) : -1;
+
+      const books = [];
+      if (iName === -1 || iPrice === -1) return books;
+
+      for (let r = headerIdx + 1; r < matrix.length; r++) {
+        const row = matrix[r] || [];
+        const priceVal = safePrice(row[iPrice]);
+        const rawName = String(row[iName] == null ? "" : row[iName]).trim();
+        if (!rawName || priceVal <= 0) continue;
+
+        const rawNoteCell = iCode >= 0 ? String(row[iCode] == null ? "" : row[iCode]).trim() : "";
+        const rawCode = iCode >= 0 ? standardizeBookCode(rawNoteCell) : "1";
+        const qtyVal = iQty >= 0 ? Math.round(safePrice(row[iQty])) : 0;
+        const rawSubjCell = iSubj >= 0 ? String(row[iSubj] == null ? "" : row[iSubj]).trim() : "";
+        const subjVal = rawSubjCell || inferSubject(rawName, rawNoteCell);
+
+        books.push({
+          name: rawName,
+          price: Math.round(priceVal),
+          code: rawCode,
+          qty: qtyVal,
+          subj: subjVal,
+          publisher: publisherName,
+        });
+      }
+      return books;
+    }
+
+    // =========================================================================
+    // 應用程式狀態管理（僅在瀏覽器記憶體運作）
+    // =========================================================================
+    if (typeof document !== "undefined") {
+      const state = {
+        rawClassStudents: null,
+        engMap: null,
+        mathMap: null,
+        rawUploadedBooks: [],
+        customFees: [{ name: "", subj: "其他", code: "1", price: 0 }],
+        removedBookNames: new Set(),
+        excludedPairs: new Set(), // "studentKey||bookKey"
+        exclMode: "byBook",
+        selectedBookKey: null,
+        selectedStudentKey: null,
+        inspectStudentKey: null,
+        activePreviewTab: "roster",
+      };
+
+      const $ = id => document.getElementById(id);
+
+      function showParseError(msg) {
+        const box = $("parseErrorBox");
+        if (!msg) {
+          box.classList.add("hidden");
+          box.textContent = "";
+        } else {
+          box.classList.remove("hidden");
+          box.textContent = msg;
+        }
+      }
+
+      function buildStudents() {
+        if (!state.rawClassStudents) return [];
+        const hasEng = state.engMap !== null;
+        const hasMath = state.mathMap !== null;
+        const merged = state.rawClassStudents.map(s => {
+          const out = { ...s };
+          const cleanName = out.name.replace(/\s+/g, "").trim();
+          if (hasEng) {
+            if (state.engMap[cleanName]) {
+              out.eng = state.engMap[cleanName][0];
+            } else {
+              out.gifted = "語資";
+              out.eng = "免";
+            }
+          }
+          if (hasMath) {
+            if (state.mathMap[cleanName]) {
+              const [grpCode, grade] = state.mathMap[cleanName];
+              out.math = grpCode;
+              out.sci = (grade === 9 || grade === 3) ? grpCode : "免";
+            } else {
+              if (["無", "", "1"].includes(out.gifted)) out.gifted = "數資";
+              else if (out.gifted === "語資") out.gifted = "語資/數資";
+              out.math = "免";
+              out.sci = "免";
+            }
+          }
+          return out;
+        });
+        return assignStudentKeys(merged);
+      }
+
+      function buildBooks(students) {
+        const custom = state.customFees
+          .filter(f => String(f.name || "").trim() && safePrice(f.price) > 0)
+          .map(f => ({
+            name: String(f.name).trim(),
+            price: Math.round(safePrice(f.price)),
+            code: standardizeBookCode(f.code || "1"),
+            qty: 0,
+            subj: f.subj || "其他",
+            publisher: "新增自訂項目",
+          }));
+
+        let combined = [...state.rawUploadedBooks, ...custom];
+        if (combined.length && students.length) {
+          combined = autoCorrectGroupCode(combined, students);
+        }
+        return assignBookKeys(combined);
+      }
+
+      function renderCustomFees() {
+        const tbody = $("customFeesBody");
+        const subjs = ["國", "英", "數", "自", "社會", "其他"];
+        tbody.innerHTML = state.customFees.map((f, idx) => `
+          <tr>
+            <td><input class="fee-input" data-idx="${idx}" data-field="name" value="${escHtml(f.name)}" placeholder="例如：班費、桌墊" /></td>
+            <td>
+              <select class="fee-select" data-idx="${idx}" data-field="subj">
+                ${subjs.map(s => `<option value="${s}" ${f.subj === s ? "selected" : ""}>${s}</option>`).join("")}
+              </select>
+            </td>
+            <td><input class="fee-input" data-idx="${idx}" data-field="code" value="${escHtml(f.code)}" placeholder="1" /></td>
+            <td><input class="fee-input" type="number" min="0" step="1" data-idx="${idx}" data-field="price" value="${f.price}" /></td>
+            <td class="center"><button type="button" class="btn-sm btn-danger-outline" data-del="${idx}">刪除</button></td>
+          </tr>
+        `).join("");
+
+        tbody.querySelectorAll("[data-field]").forEach(el => {
+          el.addEventListener("input", () => {
+            const i = Number(el.dataset.idx);
+            const field = el.dataset.field;
+            state.customFees[i][field] = field === "price" ? Number(el.value || 0) : el.value;
+            renderAll();
+          });
+        });
+        tbody.querySelectorAll("[data-del]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            state.customFees.splice(Number(btn.dataset.del), 1);
+            if (!state.customFees.length) {
+              state.customFees.push({ name: "", subj: "其他", code: "1", price: 0 });
+            }
+            renderCustomFees();
+            renderAll();
+          });
+        });
+      }
+
+      function renderAll() {
+        const students = buildStudents();
+        const allBooks = buildBooks(students);
+
+        // 學生預覽
+        if (students.length) {
+          $("studentPreviewPanel").classList.remove("hidden");
+          $("studentPreviewSummary").textContent = `名單與分組狀態預覽（共 ${students.length} 位學生）`;
+          $("studentPreviewTable").innerHTML = `
+            <table>
+              <thead><tr><th>座號</th><th>姓名</th><th>英組</th><th>數組</th><th>自組</th><th>資優類別</th></tr></thead>
+              <tbody>
+                ${students.map(s => `
+                  <tr>
+                    <td class="center">${escHtml(s.seat)}</td>
+                    <td>${escHtml(s.name)}</td>
+                    <td class="center">${escHtml(s.eng)}</td>
+                    <td class="center">${escHtml(s.math)}</td>
+                    <td class="center">${escHtml(s.sci)}</td>
+                    <td class="center">${escHtml(s.gifted)}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>`;
+        } else {
+          $("studentPreviewPanel").classList.add("hidden");
+        }
+
+        if (!students.length || !allBooks.length) {
+          $("workspaceArea").classList.add("hidden");
+          $("emptyHint").classList.remove("hidden");
+          return;
+        }
+
+        $("workspaceArea").classList.remove("hidden");
+        $("emptyHint").classList.add("hidden");
+
+        // 步驟三：全班不買書籍剔除
+        const uniqueNames = [...new Set(allBooks.map(b => b.name))];
+        $("removeBooksPills").innerHTML = uniqueNames.map(name => {
+          const isRem = state.removedBookNames.has(name);
+          return `<span class="pill-item ${isRem ? "removed" : ""}" data-bname="${escHtml(name)}">${isRem ? "✕ " : ""}${escHtml(name)}</span>`;
+        }).join("");
+        $("removeBooksPills").querySelectorAll(".pill-item").forEach(el => {
+          el.addEventListener("click", () => {
+            const name = el.dataset.bname;
+            if (state.removedBookNames.has(name)) state.removedBookNames.delete(name);
+            else state.removedBookNames.add(name);
+            renderAll();
+          });
+        });
+
+        const activeBooks = allBooks.filter(b => !state.removedBookNames.has(b.name));
+        $("booksPreviewSummary").textContent = `書目與收費項目預覽（目前共 ${activeBooks.length} 項，已剔除 ${allBooks.length - activeBooks.length} 項）`;
+        $("booksPreviewTable").innerHTML = activeBooks.length ? `
+          <table>
+            <thead><tr><th>書商／來源</th><th>商品名稱</th><th class="center">科目</th><th class="center">分組代號</th><th class="num">單價</th><th class="num">報價數量</th></tr></thead>
+            <tbody>
+              ${activeBooks.map(b => `
+                <tr>
+                  <td>${escHtml(b.publisher)}</td>
+                  <td>${escHtml(b.name)}</td>
+                  <td class="center">${escHtml(b.subj)}</td>
+                  <td class="center">${escHtml(b.code)}</td>
+                  <td class="num">$${b.price}</td>
+                  <td class="num">${b.qty}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>` : `<div class="warn-box">目前無有效書目項目。</div>`;
+
+        // 過濾有效免購紀錄
+        const validS = new Set(students.map(s => s.key));
+        const validB = new Set(activeBooks.map(b => b.key));
+        const activeExcl = new Set([...state.excludedPairs].filter(pk => {
+          const [sk, bk] = pk.split("||");
+          return validS.has(sk) && validB.has(bk);
+        }));
+
+        const plan = computePlan(students, activeBooks, activeExcl);
+        renderExclusionControls(students, activeBooks, plan, activeExcl);
+        renderPreviews(students, activeBooks, plan);
+
+        // 保存供列印與匯出使用
+        window.__bookmoneyLatest = { students, activeBooks, plan, activeExcl };
+      }
+
+      function renderExclusionControls(students, books, plan, activeExcl) {
+        const area = $("exclControlArea");
+        if (!books.length) {
+          area.innerHTML = `<div class="warn-box">目前沒有可設定的書目。</div>`;
+          return;
+        }
+
+        if (state.exclMode === "byBook") {
+          if (!state.selectedBookKey || !books.some(b => b.key === state.selectedBookKey)) {
+            state.selectedBookKey = books[0].key;
+          }
+          const selBook = books.find(b => b.key === state.selectedBookKey);
+          const eligStudents = plan.bookEligible[selBook.key] || [];
+          const exclStudents = plan.bookExcluded[selBook.key] || [];
+          const buyCnt = eligStudents.length - exclStudents.length;
+          const deducted = exclStudents.length * selBook.price;
+
+          area.innerHTML = `
+            <label style="display:block;font-weight:700;font-size:14px;margin-bottom:6px;">請選擇書目：</label>
+            <select class="form-select" id="selBookExcl">
+              ${books.map(b => {
+                const ec = (plan.bookEligible[b.key] || []).length;
+                const bc = (plan.bookBuying[b.key] || []).length;
+                const xc = (plan.bookExcluded[b.key] || []).length;
+                const codeTag = !["1", "", "全"].includes(b.code) ? ` [${b.code}]` : "";
+                const exclTag = xc > 0 ? ` ★已排除 ${xc} 人` : "";
+                return `<option value="${escHtml(b.key)}" ${b.key === selBook.key ? "selected" : ""}>【${escHtml(b.subj)}】${escHtml(b.name)}${escHtml(codeTag)}（$${b.price}｜${bc}/${ec}人購${exclTag}）</option>`;
+              }).join("")}
+            </select>
+            ${eligStudents.length === 0
+              ? `<div class="info-box" style="margin-top:10px;">此書目依目前分組／資優條件無對應購買學生。</div>`
+              : `
+                <div style="margin-top:10px;font-size:14px;">
+                  單價 <strong>$${selBook.price}</strong> ｜ 原預計 <strong>${eligStudents.length}</strong> 人 ｜
+                  已勾選不購買 <strong style="color:var(--danger);">${exclStudents.length}</strong> 人（扣除 <strong>$${deducted.toLocaleString()}</strong>）｜
+                  實際結算 <strong style="color:var(--success);">${buyCnt}</strong> 人
+                </div>
+                <div class="toolbar">
+                  <button type="button" class="btn-sm" id="btnBookExclAll">勾選本書全部不買</button>
+                  <button type="button" class="btn-sm" id="btnBookClearAll">取消本書全部勾選</button>
+                  <span class="caption" style="margin:0;">👇 點選學生即可即時加入／取消免購（紅框 ＝ 不購買、扣除費用）</span>
+                </div>
+                <div class="check-grid">
+                  ${eligStudents.map(s => {
+                    const pk = `${s.key}||${selBook.key}`;
+                    const checked = activeExcl.has(pk);
+                    return `
+                      <label class="check-card ${checked ? "checked" : ""}">
+                        <input type="checkbox" data-pk="${escHtml(pk)}" ${checked ? "checked" : ""} />
+                        <span>${escHtml(s.label)}</span>
+                      </label>`;
+                  }).join("")}
+                </div>
+              `}
+          `;
+
+          $("selBookExcl").addEventListener("change", e => {
+            state.selectedBookKey = e.target.value;
+            renderAll();
+          });
+          if ($("btnBookExclAll")) {
+            $("btnBookExclAll").addEventListener("click", () => {
+              eligStudents.forEach(s => state.excludedPairs.add(`${s.key}||${selBook.key}`));
+              renderAll();
+            });
+            $("btnBookClearAll").addEventListener("click", () => {
+              eligStudents.forEach(s => state.excludedPairs.delete(`${s.key}||${selBook.key}`));
+              renderAll();
+            });
+          }
+          area.querySelectorAll('input[type="checkbox"][data-pk]').forEach(chk => {
+            chk.addEventListener("change", () => {
+              if (chk.checked) state.excludedPairs.add(chk.dataset.pk);
+              else state.excludedPairs.delete(chk.dataset.pk);
+              renderAll();
+            });
+          });
+        } else {
+          if (!state.selectedStudentKey || !students.some(s => s.key === state.selectedStudentKey)) {
+            state.selectedStudentKey = students[0].key;
+          }
+          const selStu = students.find(s => s.key === state.selectedStudentKey);
+          const eligBooks = plan.studentEligible[selStu.key] || [];
+          const exclBooks = plan.studentExcluded[selStu.key] || [];
+          const origAmt = eligBooks.reduce((a, b) => a + b.price, 0);
+          const dedAmt = exclBooks.reduce((a, b) => a + b.price, 0);
+          const finalAmt = origAmt - dedAmt;
+
+          area.innerHTML = `
+            <label style="display:block;font-weight:700;font-size:14px;margin-bottom:6px;">請選擇學生：</label>
+            <select class="form-select" id="selStuExcl">
+              ${students.map(s => {
+                const pay = (plan.studentBuying[s.key] || []).reduce((a, b) => a + b.price, 0);
+                const xc = (plan.studentExcluded[s.key] || []).length;
+                const tag = xc > 0 ? `｜已排除 ${xc} 本` : "";
+                return `<option value="${escHtml(s.key)}" ${s.key === selStu.key ? "selected" : ""}>${escHtml(s.label)}（實繳 $${pay.toLocaleString()}${tag}）</option>`;
+              }).join("")}
+            </select>
+            ${eligBooks.length === 0
+              ? `<div class="info-box" style="margin-top:10px;">此學生目前無需購買任何書目。</div>`
+              : `
+                <div style="margin-top:10px;font-size:14px;">
+                  原應繳 <strong>$${origAmt.toLocaleString()}</strong> ｜
+                  已排除 <strong style="color:var(--danger);">${exclBooks.length}</strong> 本（扣除 <strong>$${dedAmt.toLocaleString()}</strong>）｜
+                  實繳 <strong style="color:var(--success);">$${finalAmt.toLocaleString()}</strong>
+                </div>
+                <div class="toolbar">
+                  <button type="button" class="btn-sm" id="btnStuExclAll">此生全部書目不買</button>
+                  <button type="button" class="btn-sm" id="btnStuClearAll">取消此生全部勾選</button>
+                  <span class="caption" style="margin:0;">👇 勾選這位學生已自購的書目（紅框 ＝ 不購買、扣除費用）</span>
+                </div>
+                <div class="check-grid single-col">
+                  ${eligBooks.map(b => {
+                    const pk = `${selStu.key}||${b.key}`;
+                    const checked = activeExcl.has(pk);
+                    const codeTag = !["1", "", "全"].includes(b.code) ? ` [${b.code}]` : "";
+                    return `
+                      <label class="check-card ${checked ? "checked" : ""}">
+                        <input type="checkbox" data-pk="${escHtml(pk)}" ${checked ? "checked" : ""} />
+                        <span>【${escHtml(b.subj)}】${escHtml(b.name)}${escHtml(codeTag)}（$${b.price}）</span>
+                      </label>`;
+                  }).join("")}
+                </div>
+              `}
+          `;
+
+          $("selStuExcl").addEventListener("change", e => {
+            state.selectedStudentKey = e.target.value;
+            renderAll();
+          });
+          if ($("btnStuExclAll")) {
+            $("btnStuExclAll").addEventListener("click", () => {
+              eligBooks.forEach(b => state.excludedPairs.add(`${selStu.key}||${b.key}`));
+              renderAll();
+            });
+            $("btnStuClearAll").addEventListener("click", () => {
+              eligBooks.forEach(b => state.excludedPairs.delete(`${selStu.key}||${b.key}`));
+              renderAll();
+            });
+          }
+          area.querySelectorAll('input[type="checkbox"][data-pk]').forEach(chk => {
+            chk.addEventListener("change", () => {
+              if (chk.checked) state.excludedPairs.add(chk.dataset.pk);
+              else state.excludedPairs.delete(chk.dataset.pk);
+              renderAll();
+            });
+          });
+        }
+
+        // 已勾選免購總覽
+        const exclRows = [];
+        for (const s of students) {
+          for (const b of plan.studentExcluded[s.key]) {
+            exclRows.push({ s, b, pk: `${s.key}||${b.key}` });
+          }
+        }
+        const sumPanel = $("exclSummaryPanel");
+        if (exclRows.length) {
+          const dedSum = exclRows.reduce((a, r) => a + r.b.price, 0);
+          sumPanel.classList.remove("hidden");
+          $("exclSummaryTitle").textContent = `📌 目前已勾選 ${exclRows.length} 筆免購項目（共扣除 $${dedSum.toLocaleString()} 元）`;
+          $("exclSummaryTable").innerHTML = `
+            <table>
+              <thead><tr><th class="center">座號</th><th>姓名</th><th>已排除書目（不購買）</th><th class="center">科目</th><th class="num">扣除金額</th><th class="center">還原</th></tr></thead>
+              <tbody>
+                ${exclRows.map(r => `
+                  <tr>
+                    <td class="center">${escHtml(r.s.seat)}</td>
+                    <td>${escHtml(r.s.name)}</td>
+                    <td>${escHtml(r.b.name)}</td>
+                    <td class="center">${escHtml(r.b.subj)}</td>
+                    <td class="num" style="color:var(--danger);font-weight:700;">-$${r.b.price}</td>
+                    <td class="center"><button type="button" class="btn-sm" data-unexcl="${escHtml(r.pk)}">✕ 取消</button></td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>`;
+          $("exclSummaryTable").querySelectorAll("[data-unexcl]").forEach(btn => {
+            btn.addEventListener("click", () => {
+              state.excludedPairs.delete(btn.dataset.unexcl);
+              renderAll();
+            });
+          });
+        } else {
+          sumPanel.classList.add("hidden");
+        }
+      }
+
+      function renderPreviews(students, books, plan) {
+        let totalPayable = 0;
+        let totalExclCnt = 0;
+        let totalExclAmt = 0;
+        for (const s of students) {
+          totalPayable += (plan.studentBuying[s.key] || []).reduce((a, b) => a + b.price, 0);
+          const ex = plan.studentExcluded[s.key] || [];
+          totalExclCnt += ex.length;
+          totalExclAmt += ex.reduce((a, b) => a + b.price, 0);
+        }
+
+        $("metricsBar").innerHTML = `
+          <div class="metric-card">
+            <div class="metric-label">班級學生人數</div>
+            <div class="metric-value">${students.length} 人</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">已排除自購免購</div>
+            <div class="metric-value">${totalExclCnt} 人次</div>
+            <div class="metric-sub">${totalExclAmt > 0 ? `共扣除 -$${totalExclAmt.toLocaleString()} 元` : "目前無排除項目"}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">全班應收總額</div>
+            <div class="metric-value" style="color:var(--primary);">$ ${totalPayable.toLocaleString()}</div>
+          </div>
+        `;
+
+        // 子分頁 1：全班個別書目總表
+        const kw = ($("searchStudent").value || "").trim();
+        const onlyExcl = $("filterOnlyExcl").checked;
+        const filtered = students.filter(s => {
+          if (onlyExcl && !(plan.studentExcluded[s.key] || []).length) return false;
+          if (kw && !s.seat.includes(kw) && !s.name.includes(kw)) return false;
+          return true;
+        });
+
+        $("rosterPreviewTable").innerHTML = filtered.length ? `
+          <table>
+            <thead>
+              <tr>
+                <th class="center">座號</th>
+                <th>姓名</th>
+                <th>分組／資優</th>
+                <th class="center">冊數</th>
+                <th>購買書目明細</th>
+                <th>已排除書目（免購）</th>
+                <th class="num">應繳總額</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map(s => {
+                const buying = plan.studentBuying[s.key] || [];
+                const excl = plan.studentExcluded[s.key] || [];
+                const amt = buying.reduce((a, b) => a + b.price, 0);
+                const buyStr = buying.length ? buying.map(b => `${b.name}($${b.price})`).join("、") : "免購";
+                const exclStr = excl.length ? excl.map(b => `<span class="tag-excl">${escHtml(b.name)}(-$${b.price})</span>`).join(" ") : `<span style="color:var(--muted);">無</span>`;
+                return `
+                  <tr>
+                    <td class="center">${escHtml(s.seat)}</td>
+                    <td style="white-space:nowrap;font-weight:600;">${escHtml(s.name)}</td>
+                    <td style="white-space:nowrap;font-size:12.5px;color:var(--muted);">${escHtml(formatStudentGroupSummary(s))}</td>
+                    <td class="center">${buying.length}</td>
+                    <td style="font-size:13px;">${escHtml(buyStr)}</td>
+                    <td>${exclStr}</td>
+                    <td class="num" style="font-weight:700;white-space:nowrap;">$${amt.toLocaleString()}</td>
+                  </tr>`;
+              }).join("")}
+            </tbody>
+          </table>` : `<div class="info-box">沒有符合篩選條件的學生。</div>`;
+
+        // 子分頁 2：單一學生明細檢視
+        if (!state.inspectStudentKey || !students.some(s => s.key === state.inspectStudentKey)) {
+          state.inspectStudentKey = students[0].key;
+        }
+        const inspectSel = $("inspectStudentSelect");
+        inspectSel.innerHTML = students.map(s => {
+          const amt = (plan.studentBuying[s.key] || []).reduce((a, b) => a + b.price, 0);
+          const xc = (plan.studentExcluded[s.key] || []).length;
+          return `<option value="${escHtml(s.key)}" ${s.key === state.inspectStudentKey ? "selected" : ""}>${escHtml(s.label)}（應繳 $${amt.toLocaleString()}${xc ? `｜免購 ${xc} 本` : ""}）</option>`;
+        }).join("");
+
+        const stu = students.find(s => s.key === state.inspectStudentKey);
+        const sBuying = plan.studentBuying[stu.key] || [];
+        const sExcl = plan.studentExcluded[stu.key] || [];
+        const sTot = sBuying.reduce((a, b) => a + b.price, 0);
+        const sExclSum = sExcl.reduce((a, b) => a + b.price, 0);
+
+        $("singleStudentDetail").innerHTML = `
+          <div style="margin:8px 0;font-size:15px;">
+            <strong>${escHtml(stu.label)}</strong> ｜ 分組狀態：<code>${escHtml(formatStudentGroupSummary(stu))}</code>
+          </div>
+          ${sBuying.length ? `
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th class="center">科目</th><th>商品名稱</th><th class="center">分組代號</th><th>書商／來源</th><th class="num">單價</th></tr></thead>
+                <tbody>
+                  ${sBuying.map(b => `
+                    <tr>
+                      <td class="center">${escHtml(b.subj)}</td>
+                      <td>${escHtml(b.name)}</td>
+                      <td class="center">${escHtml(b.code)}</td>
+                      <td>${escHtml(b.publisher)}</td>
+                      <td class="num">$${b.price}</td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>
+            </div>
+          ` : `<div class="info-box">此學生本學期無應購項目（免繳費）。</div>`}
+          <div style="margin-top:10px;font-size:16px;font-weight:800;color:var(--danger);">
+            💰 應繳總計：$ ${sTot.toLocaleString()} 元（共 ${sBuying.length} 項）
+          </div>
+          ${sExcl.length ? `
+            <div class="warn-box">
+              🚫 已排除自購免購（不計費，共扣除 $${sExclSum.toLocaleString()} 元）：${escHtml(sExcl.map(b => `${b.name}($${b.price})`).join("、"))}
+            </div>
+          ` : ""}
+        `;
+
+        // 子分頁 3：各書目統計
+        $("bookStatsTable").innerHTML = `
+          <table>
+            <thead>
+              <tr>
+                <th>商品名稱</th><th class="center">科目</th><th class="center">分組</th><th>書商／來源</th>
+                <th class="num">原預計</th><th class="num">免購</th><th class="num">實際結算</th>
+                <th class="num">單價</th><th class="num">小計金額</th><th>免購名單</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${books.map(b => {
+                const ec = (plan.bookEligible[b.key] || []).length;
+                const exList = plan.bookExcluded[b.key] || [];
+                const bc = (plan.bookBuying[b.key] || []).length;
+                return `
+                  <tr>
+                    <td>${escHtml(b.name)}</td>
+                    <td class="center">${escHtml(b.subj)}</td>
+                    <td class="center">${escHtml(b.code)}</td>
+                    <td>${escHtml(b.publisher)}</td>
+                    <td class="num">${ec}</td>
+                    <td class="num" style="color:${exList.length ? "var(--danger)" : "inherit"};font-weight:${exList.length ? 700 : 400};">${exList.length}</td>
+                    <td class="num" style="font-weight:700;color:var(--success);">${bc}</td>
+                    <td class="num">$${b.price}</td>
+                    <td class="num" style="font-weight:700;">$${(bc * b.price).toLocaleString()}</td>
+                    <td style="font-size:12.5px;">${exList.length ? escHtml(exList.map(s => s.label).join("、")) : `<span style="color:var(--muted);">無</span>`}</td>
+                  </tr>`;
+              }).join("")}
+            </tbody>
+          </table>`;
+      }
+
+      // =========================================================================
+      // 列印 A4 家長通知單（原生列印 / 另存 PDF）
+      // =========================================================================
+      function printReceipts(targetStudents) {
+        const latest = window.__bookmoneyLatest;
+        if (!latest) return;
+        const { plan } = latest;
+        const showExclNote = $("chkShowExclNote").checked;
+        const layout = $("printLayoutMode").value; // "one" or "two"
+        const isTwo = layout === "two";
+
+        const html = targetStudents.map((s, idx) => {
+          const buying = plan.studentBuying[s.key] || [];
+          const excl = plan.studentExcluded[s.key] || [];
+          const total = buying.reduce((a, b) => a + b.price, 0);
+          const engDisp = ["1", "無", "免", ""].includes(s.eng) ? "無" : s.eng;
+          const mathDisp = ["1", "無", "免", ""].includes(s.math) ? "無" : s.math;
+          const giftDisp = ["1", "無", "免", ""].includes(s.gifted) ? "無" : s.gifted;
+
+          // 項目多時自動微調字體確保不超出單頁
+          let fontPt = isTwo ? 9.5 : 11;
+          let padMm = isTwo ? 0.9 : 1.6;
+          if (!isTwo && buying.length > 22) { fontPt = 9; padMm = 0.8; }
+          else if (!isTwo && buying.length > 16) { fontPt = 10; padMm = 1.1; }
+          else if (isTwo && buying.length > 10) { fontPt = 8; padMm = 0.5; }
+
+          const pairEndClass = isTwo && (idx % 2 === 1) ? "pair-end" : "";
+
+          return `
+            <div class="receipt-page ${isTwo ? "two-up" : ""} ${pairEndClass}">
+              <div>
+                <h1 class="rcp-title">學 期 各 項 費 用 通 知 單</h1>
+                <div class="rcp-meta">
+                  <span>座號：${escHtml(s.seat)}　　姓名：${escHtml(s.name)}</span>
+                  <span>狀態：英(${escHtml(engDisp)}) 數(${escHtml(mathDisp)}) 資優(${escHtml(giftDisp)})</span>
+                </div>
+                <table class="rcp-table" style="font-size:${fontPt}pt;">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">項目名稱</th>
+                      <th style="text-align:right;width:24%;">金額 (元)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${buying.length ? buying.map(b => `
+                      <tr>
+                        <td style="padding:${padMm}mm 2mm;">${escHtml(b.name)}</td>
+                        <td style="padding:${padMm}mm 2mm;text-align:right;">$ ${b.price}</td>
+                      </tr>
+                    `).join("") : `
+                      <tr><td colspan="2" style="padding:4mm 2mm;">（本學期無收費項目，免繳費）</td></tr>
+                    `}
+                  </tbody>
+                </table>
+                <div class="rcp-total-row">
+                  <span>應繳總計金額：</span>
+                  <span class="rcp-total-amt">$ ${total.toLocaleString()} 元</span>
+                </div>
+                ${showExclNote && excl.length ? `
+                  <div class="rcp-excl-note">
+                    ※ 已自購免購（不計費）：${escHtml(excl.map(b => b.name).join("、"))}
+                  </div>
+                ` : ""}
+              </div>
+              <div class="rcp-footer">
+                <div style="font-weight:700;">【家長簽章回條】</div>
+                <div class="rcp-sign-line">
+                  <span>本人已確認上述 座號 ${escHtml(s.seat)} ${escHtml(s.name)} 之明細與金額無誤。</span>
+                  <span>家長簽名：________________</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        $("printArea").innerHTML = html;
+        setTimeout(() => window.print(), 80);
+      }
+
+      // =========================================================================
+      // 匯出多工作表 Excel 導師對帳總表 (.xlsx)
+      // =========================================================================
+      function buildMasterSheetAOA(students, books, activeExcl) {
+        const bookRows = books.map(b => {
+          let qty = 0;
+          for (const s of students) {
+            if (isBookForStudent(b.subj, b.code, s.eng, s.math, s.sci, s.gifted) && !activeExcl.has(`${s.key}||${b.key}`)) {
+              qty += 1;
+            }
+          }
+          return [b.name, b.subj, b.code, qty, b.price];
+        });
+
+        let hasAnyExcl = false;
+        const studentRows = students.map(s => {
+          let subtotal = 0;
+          const exclNames = [];
+          for (const b of books) {
+            if (isBookForStudent(b.subj, b.code, s.eng, s.math, s.sci, s.gifted)) {
+              if (activeExcl.has(`${s.key}||${b.key}`)) {
+                exclNames.push(b.name);
+                hasAnyExcl = true;
+              } else {
+                subtotal += b.price;
+              }
+            }
+          }
+          return [s.seat, s.name, s.gifted, s.eng, s.math, s.sci, subtotal, exclNames.join("、")];
+        });
+
+        const header = [
+          "項目名稱", "科目", "分組代號", "結算數量", "單價", "",
+          "座號", "姓名", "資優", "英組", "數組", "自組", "應收總額",
+        ];
+        if (hasAnyExcl) header.push("已自購免購");
+
+        const maxLen = Math.max(bookRows.length, studentRows.length);
+        const aoa = [header];
+        for (let i = 0; i < maxLen; i++) {
+          const left = bookRows[i] || ["", "", "", "", ""];
+          const right = studentRows[i] ? (hasAnyExcl ? studentRows[i] : studentRows[i].slice(0, 7)) : (hasAnyExcl ? ["", "", "", "", "", "", "", ""] : ["", "", "", "", "", "", ""]);
+          aoa.push([...left, "", ...right]);
+        }
+
+        const totalSum = studentRows.reduce((a, r) => a + r[6], 0);
+        const totalRow = ["", "", "", "", "", "", "", "", "", "", "", "單頁總計", totalSum];
+        if (hasAnyExcl) totalRow.push("");
+        aoa.push(totalRow);
+
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws["!cols"] = [
+          { wch: 36 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 3 },
+          { wch: 6 }, { wch: 12 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 12 },
+          ...(hasAnyExcl ? [{ wch: 30 }] : []),
+        ];
+        return ws;
+      }
+
+      function buildIndividualSheet(students, plan) {
+        const aoa = [["座號", "姓名", "分組／資優", "購買冊數", "購買書目明細", "已排除書目(免購)", "應收總額"]];
+        let grandTotal = 0;
+        for (const s of students) {
+          const buying = plan.studentBuying[s.key] || [];
+          const excl = plan.studentExcluded[s.key] || [];
+          const sub = buying.reduce((a, b) => a + b.price, 0);
+          grandTotal += sub;
+          aoa.push([
+            s.seat,
+            s.name,
+            formatStudentGroupSummary(s),
+            buying.length,
+            buying.length ? buying.map(b => `${b.name}($${b.price})`).join("、") : "免購",
+            excl.length ? excl.map(b => `${b.name}($${b.price})`).join("、") : "",
+            sub,
+          ]);
+        }
+        aoa.push(["", "", "", "", "", "班級總計", grandTotal]);
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws["!cols"] = [
+          { wch: 8 }, { wch: 12 }, { wch: 18 }, { wch: 10 }, { wch: 52 }, { wch: 32 }, { wch: 12 },
+        ];
+        return ws;
+      }
+
+      function sanitizeSheetName(name, used) {
+        let safe = String(name || "對帳表").replace(/[\\/?*\[\]:]/g, "").slice(0, 28) || "對帳表";
+        let candidate = safe;
+        let idx = 2;
+        while (used.has(candidate)) {
+          candidate = `${safe.slice(0, 25)}_${idx++}`;
+        }
+        used.add(candidate);
+        return candidate;
+      }
+
+      function downloadMasterExcel() {
+        const latest = window.__bookmoneyLatest;
+        if (!latest) return;
+        const { students, activeBooks, plan, activeExcl } = latest;
+        const wb = XLSX.utils.book_new();
+        const usedNames = new Set();
+
+        XLSX.utils.book_append_sheet(wb, buildMasterSheetAOA(students, activeBooks, activeExcl), sanitizeSheetName("班級收費總表(全)", usedNames));
+        XLSX.utils.book_append_sheet(wb, buildIndividualSheet(students, plan), sanitizeSheetName("個別學生書目明細", usedNames));
+
+        const pubs = [...new Set(activeBooks.map(b => b.publisher))];
+        for (const pub of pubs) {
+          const pubBooks = activeBooks.filter(b => b.publisher === pub);
+          const safePub = String(pub || "書商").slice(0, 12);
+          XLSX.utils.book_append_sheet(wb, buildMasterSheetAOA(students, pubBooks, activeExcl), sanitizeSheetName(`${safePub}對帳表`, usedNames));
+        }
+
+        XLSX.writeFile(wb, "導師對帳總表.xlsx");
+      }
+
+      // =========================================================================
+      // 事件綁定
+      // =========================================================================
+      $("fileClass").addEventListener("change", async e => {
+        showParseError("");
+        const file = e.target.files[0];
+        if (!file) {
+          state.rawClassStudents = null;
+          $("boxClass").classList.remove("loaded");
+          $("statusClass").textContent = "尚未選擇檔案";
+          renderAll();
+          return;
+        }
+        try {
+          const mat = await readFileAsMatrix(file);
+          state.rawClassStudents = parseClassMatrix(mat);
+          $("boxClass").classList.add("loaded");
+          $("statusClass").textContent = `✅ 已載入 ${file.name}（${state.rawClassStudents.length} 位學生）`;
+          renderAll();
+        } catch (err) {
+          showParseError(`讀取班級總名單失敗：${err.message}`);
+        }
+      });
+
+      $("fileBooks").addEventListener("change", async e => {
+        showParseError("");
+        const files = [...e.target.files];
+        if (!files.length) {
+          state.rawUploadedBooks = [];
+          $("boxBooks").classList.remove("loaded");
+          $("statusBooks").textContent = "尚未選擇檔案";
+          renderAll();
+          return;
+        }
+        try {
+          const all = [];
+          for (const f of files) {
+            const mat = await readFileAsMatrix(f);
+            all.push(...parseBookMatrix(mat, f.name));
+          }
+          state.rawUploadedBooks = all;
+          $("boxBooks").classList.add("loaded");
+          $("statusBooks").textContent = `✅ 已載入 ${files.length} 份報價單（共 ${all.length} 筆書目）`;
+          renderAll();
+        } catch (err) {
+          showParseError(`讀取書商報價單失敗：${err.message}`);
+        }
+      });
+
+      $("fileEng").addEventListener("change", async e => {
+        showParseError("");
+        const file = e.target.files[0];
+        if (!file) {
+          state.engMap = null;
+          $("boxEng").classList.remove("loaded");
+          $("statusEng").textContent = "未上傳（若無英文分組免填）";
+          renderAll();
+          return;
+        }
+        try {
+          const mat = await readFileAsMatrix(file);
+          state.engMap = parseHorizontalGroupMatrix(mat, "英");
+          $("boxEng").classList.add("loaded");
+          $("statusEng").textContent = `✅ 已載入 ${file.name}（辨識 ${Object.keys(state.engMap).length} 位學生）`;
+          renderAll();
+        } catch (err) {
+          showParseError(`讀取英文分組名單失敗：${err.message}`);
+        }
+      });
+
+      $("fileMath").addEventListener("change", async e => {
+        showParseError("");
+        const file = e.target.files[0];
+        if (!file) {
+          state.mathMap = null;
+          $("boxMath").classList.remove("loaded");
+          $("statusMath").textContent = "未上傳（若讀到 9 或 3 開頭三年級名單，自動連動自然同組）";
+          renderAll();
+          return;
+        }
+        try {
+          const mat = await readFileAsMatrix(file);
+          state.mathMap = parseHorizontalGroupMatrix(mat, "數");
+          $("boxMath").classList.add("loaded");
+          $("statusMath").textContent = `✅ 已載入 ${file.name}（辨識 ${Object.keys(state.mathMap).length} 位學生）`;
+          renderAll();
+        } catch (err) {
+          showParseError(`讀取數學／自然分組名單失敗：${err.message}`);
+        }
+      });
+
+      $("btnAddFee").addEventListener("click", () => {
+        state.customFees.push({ name: "", subj: "其他", code: "1", price: 0 });
+        renderCustomFees();
+      });
+
+      $("exclModeBar").querySelectorAll(".radio-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+          state.exclMode = chip.dataset.mode;
+          $("exclModeBar").querySelectorAll(".radio-chip").forEach(c => c.classList.toggle("active", c === chip));
+          renderAll();
+        });
+      });
+
+      $("btnClearAllExcl").addEventListener("click", () => {
+        state.excludedPairs.clear();
+        renderAll();
+      });
+
+      $("previewTabs").querySelectorAll(".sub-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+          state.activePreviewTab = tab.dataset.tab;
+          $("previewTabs").querySelectorAll(".sub-tab").forEach(t => t.classList.toggle("active", t === tab));
+          $("previewTabRoster").classList.toggle("hidden", state.activePreviewTab !== "roster");
+          $("previewTabSingle").classList.toggle("hidden", state.activePreviewTab !== "single");
+          $("previewTabBooks").classList.toggle("hidden", state.activePreviewTab !== "books");
+        });
+      });
+
+      $("searchStudent").addEventListener("input", renderAll);
+      $("filterOnlyExcl").addEventListener("change", renderAll);
+      $("inspectStudentSelect").addEventListener("change", e => {
+        state.inspectStudentKey = e.target.value;
+        renderAll();
+      });
+
+      $("btnPrintAll").addEventListener("click", () => {
+        if (window.__bookmoneyLatest) printReceipts(window.__bookmoneyLatest.students);
+      });
+      $("btnPrintSingle").addEventListener("click", () => {
+        if (!window.__bookmoneyLatest) return;
+        const stu = window.__bookmoneyLatest.students.find(s => s.key === state.inspectStudentKey);
+        if (stu) printReceipts([stu]);
+      });
+      $("btnDownloadExcel").addEventListener("click", downloadMasterExcel);
+
+      renderCustomFees();
+    }
+  </script>
+</body>
+</html>
