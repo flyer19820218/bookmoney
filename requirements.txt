@@ -6,3 +6,8 @@ reportlab
 matplotlib
 numpy
 pdfplumber
+pypdfium2
+pillow
+opencv-python-headless
+onnxruntime
+rapidocr
