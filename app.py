@@ -49,6 +49,568 @@ def init_fonts():
 
 HAS_FONT = init_fonts()
 
+# ==========================================
+# 0.5 共用工具：個別學生免購排除與即時書目預覽
+# ==========================================
+def normalize_seat(val):
+    text = str(val).strip()
+    if text in ["", "nan", "None"]:
+        return ""
+    if re.fullmatch(r"\d+\.0+", text):
+        return text.split(".")[0]
+    return text
+
+def safe_price(val):
+    num = pd.to_numeric(val, errors="coerce")
+    if pd.isna(num):
+        return 0
+    return int(round(float(num))) if abs(float(num) - round(float(num))) < 1e-6 else float(num)
+
+def attach_student_keys(df_students, default_group="無"):
+    df_out = df_students.copy()
+    occ = {}
+    keys = []
+    records = []
+    for row_idx, row in df_out.iterrows():
+        seat = normalize_seat(row.get("座號", ""))
+        name = str(row.get("姓名", "")).strip()
+        base = f"{seat}|{name}"
+        occ[base] = occ.get(base, 0) + 1
+        s_key = f"{base}#{occ[base]}"
+        keys.append(s_key)
+
+        gifted = str(row.get("資優類別", default_group)).strip()
+        eng = str(row.get("英組", default_group)).strip()
+        math = str(row.get("數組", default_group)).strip()
+        sci = str(row.get("自組", default_group)).strip()
+        label = f"{seat}號 {name}" if seat else name
+        records.append({
+            "key": s_key,
+            "row_idx": row_idx,
+            "seat": seat,
+            "name": name,
+            "label": label,
+            "gifted": gifted,
+            "eng": eng,
+            "math": math,
+            "sci": sci,
+        })
+    df_out["_student_key"] = keys
+    return df_out, records
+
+def attach_book_keys(df_books, mode="tab2"):
+    df_out = df_books.copy()
+    occ = {}
+    keys = []
+    records = []
+    for row_idx, book in df_out.iterrows():
+        if mode == "tab1":
+            b_name = str(book.get("商品名稱", "")).strip()
+            b_subj = str(book.get("科目", "")).strip()
+            b_code = str(book.get("分組代號", "1")).strip()
+            b_price = safe_price(book.get("單價", 0))
+            b_pub = ""
+        else:
+            b_name = str(book.get("name", "")).strip()
+            b_subj = str(book.get("subj", "")).strip()
+            b_code = str(book.get("code", "1")).strip()
+            b_price = safe_price(book.get("price", 0))
+            b_pub = str(book.get("publisher", "")).strip()
+
+        b_subj_check = "社會" if b_subj in ["歷", "地", "公", "歷史", "地理", "公民", "社會三科"] else b_subj
+        base = f"{b_pub}|{b_subj_check}|{b_code}|{b_name}|{b_price}"
+        occ[base] = occ.get(base, 0) + 1
+        b_key = f"{base}#{occ[base]}"
+        keys.append(b_key)
+
+        records.append({
+            "key": b_key,
+            "row_idx": row_idx,
+            "name": b_name,
+            "subj": b_subj,
+            "subj_check": b_subj_check,
+            "code": b_code,
+            "price": b_price,
+            "publisher": b_pub,
+        })
+    df_out["_book_key"] = keys
+    return df_out, records
+
+def format_student_group_summary(student):
+    parts = []
+    eng = student.get("eng", "")
+    math = student.get("math", "")
+    sci = student.get("sci", "")
+    gifted = student.get("gifted", "")
+    if eng not in ["", "1", "無", "免", "nan"]:
+        parts.append(f"英:{eng}")
+    if math not in ["", "1", "無", "免", "nan"]:
+        parts.append(f"數:{math}")
+    if sci not in ["", "1", "無", "免", "nan"] and sci != math:
+        parts.append(f"自:{sci}")
+    if gifted not in ["", "1", "無", "免", "nan"]:
+        parts.append(f"資優:{gifted}")
+    return " / ".join(parts) if parts else "一般"
+
+def compute_student_book_plan(student_records, book_records, eligibility_fn, excluded_pairs):
+    excluded_pairs = excluded_pairs or set()
+    student_buying = {s["key"]: [] for s in student_records}
+    student_excluded = {s["key"]: [] for s in student_records}
+    student_eligible = {s["key"]: [] for s in student_records}
+    book_buying = {b["key"]: [] for b in book_records}
+    book_excluded = {b["key"]: [] for b in book_records}
+    book_eligible = {b["key"]: [] for b in book_records}
+
+    for student in student_records:
+        s_key = student["key"]
+        for book in book_records:
+            b_key = book["key"]
+            if eligibility_fn(student, book):
+                student_eligible[s_key].append(book)
+                book_eligible[b_key].append(student)
+                if (s_key, b_key) in excluded_pairs:
+                    student_excluded[s_key].append(book)
+                    book_excluded[b_key].append(student)
+                else:
+                    student_buying[s_key].append(book)
+                    book_buying[b_key].append(student)
+
+    return {
+        "student_buying": student_buying,
+        "student_excluded": student_excluded,
+        "student_eligible": student_eligible,
+        "book_buying": book_buying,
+        "book_excluded": book_excluded,
+        "book_eligible": book_eligible,
+    }
+
+def wrap_pdf_text(text, font_name, font_size, max_width, max_lines=3):
+    if not text:
+        return []
+    lines = []
+    current = ""
+    for ch in str(text):
+        candidate = current + ch
+        if current and pdfmetrics.stringWidth(candidate, font_name, font_size) > max_width:
+            lines.append(current)
+            current = ch
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    if len(lines) > max_lines:
+        trimmed = lines[max_lines - 1]
+        while trimmed and pdfmetrics.stringWidth(trimmed + "…", font_name, font_size) > max_width:
+            trimmed = trimmed[:-1]
+        lines = lines[:max_lines - 1] + [trimmed + "…"]
+    return lines
+
+def write_individual_booklist_sheet(wb, student_records, plan):
+    ws = wb.create_sheet("個別學生書目明細")
+    headers = ["座號", "姓名", "分組／資優", "購買冊數", "購買書目明細", "已排除書目(免購)", "應收總額"]
+    thin_border = Border(
+        left=Side(style='thin', color='BFBFBF'),
+        right=Side(style='thin', color='BFBFBF'),
+        top=Side(style='thin', color='BFBFBF'),
+        bottom=Side(style='thin', color='BFBFBF'),
+    )
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = Font(name="微軟正黑體", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
+
+    grand_total = 0
+    for r_idx, s in enumerate(student_records, 2):
+        s_key = s["key"]
+        buying = plan["student_buying"][s_key]
+        excluded = plan["student_excluded"][s_key]
+        buying_str = "、".join([f"{b['name']}(${int(b['price'])})" for b in buying]) if buying else "免購"
+        excluded_str = "、".join([f"{b['name']}(${int(b['price'])})" for b in excluded]) if excluded else ""
+        subtotal = sum(b["price"] for b in buying)
+        grand_total += subtotal
+
+        row_vals = [
+            s["seat"],
+            s["name"],
+            format_student_group_summary(s),
+            len(buying),
+            buying_str,
+            excluded_str,
+            subtotal,
+        ]
+        for c_idx, val in enumerate(row_vals, 1):
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.font = Font(name="微軟正黑體", size=10, bold=(c_idx == 7))
+            cell.border = thin_border
+            if c_idx in [5, 6]:
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            else:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    last_row = len(student_records) + 2
+    ws.cell(row=last_row, column=6, value="班級總計").font = Font(name="微軟正黑體", bold=True)
+    ws.cell(row=last_row, column=6).alignment = Alignment(horizontal="right", vertical="center")
+    tot_cell = ws.cell(row=last_row, column=7, value=grand_total)
+    tot_cell.font = Font(name="微軟正黑體", bold=True, color="FF0000")
+    tot_cell.alignment = Alignment(horizontal="center", vertical="center")
+    tot_cell.border = thin_border
+
+    ws.column_dimensions['A'].width = 8
+    ws.column_dimensions['B'].width = 12
+    ws.column_dimensions['C'].width = 18
+    ws.column_dimensions['D'].width = 10
+    ws.column_dimensions['E'].width = 52
+    ws.column_dimensions['F'].width = 30
+    ws.column_dimensions['G'].width = 12
+
+def _on_toggle_exclusion(state_key, chk_key, s_key, b_key):
+    exclusions = set(st.session_state.get(state_key, set()))
+    if st.session_state.get(chk_key, False):
+        exclusions.add((s_key, b_key))
+    else:
+        exclusions.discard((s_key, b_key))
+    st.session_state[state_key] = exclusions
+
+def _on_bulk_exclusions(state_key, ver_key, pairs, exclude=True):
+    exclusions = set(st.session_state.get(state_key, set()))
+    if exclude:
+        exclusions.update(pairs)
+    else:
+        exclusions.difference_update(pairs)
+    st.session_state[state_key] = exclusions
+    st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+
+def _on_clear_exclusions(state_key, ver_key):
+    st.session_state[state_key] = set()
+    st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+
+def render_exclusion_and_preview_section(prefix, student_records, book_records, eligibility_fn, show_publisher=False):
+    state_key = f"{prefix}_excluded_pairs"
+    ver_key = f"{prefix}_excluded_ver"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = set()
+    if ver_key not in st.session_state:
+        st.session_state[ver_key] = 0
+
+    valid_s_keys = {s["key"] for s in student_records}
+    valid_b_keys = {b["key"] for b in book_records}
+    raw_exclusions = st.session_state[state_key]
+    active_exclusions = {
+        (sk, bk) for (sk, bk) in raw_exclusions
+        if sk in valid_s_keys and bk in valid_b_keys
+    }
+
+    plan = compute_student_book_plan(student_records, book_records, eligibility_fn, active_exclusions)
+    book_by_key = {b["key"]: b for b in book_records}
+    student_by_key = {s["key"]: s for s in student_records}
+    ver = st.session_state[ver_key]
+
+    st.markdown("#### 🙋 個別學生「已自購／不購買」書籍勾選")
+    st.caption("若有學生已自行購買某本書，請在下方選單中選擇書目（或選擇學生）並打勾，系統會自動去除該生費用並扣除書商訂購數量。")
+
+    if not student_records or not book_records:
+        st.info("目前尚無完整的學生或書目資料可設定。")
+        return active_exclusions, plan
+
+    mode = st.radio(
+        "選擇勾選方式：",
+        options=["📘 依書目勾選（這本書誰不買）", "🧑‍🎓 依學生勾選（這位學生哪些書不買）"],
+        horizontal=True,
+        key=f"{prefix}_excl_mode",
+    )
+
+    if mode.startswith("📘"):
+        book_keys = [b["key"] for b in book_records]
+        book_labels = {}
+        for b in book_records:
+            bk = b["key"]
+            elig_cnt = len(plan["book_eligible"][bk])
+            buy_cnt = len(plan["book_buying"][bk])
+            excl_cnt = len(plan["book_excluded"][bk])
+            code_tag = f" [{b['code']}]" if b["code"] not in ["1", "", "全"] else ""
+            excl_tag = f" ★已排除 {excl_cnt} 人" if excl_cnt > 0 else ""
+            book_labels[bk] = f"【{b['subj']}】{b['name']}{code_tag}（${int(b['price'])}｜{buy_cnt}/{elig_cnt}人購{excl_tag}）"
+
+        selected_b_key = st.selectbox(
+            "請選擇書目：",
+            options=book_keys,
+            format_func=lambda k: book_labels[k],
+            key=f"{prefix}_select_book_excl",
+        )
+        selected_book = book_by_key[selected_b_key]
+        elig_students = plan["book_eligible"][selected_b_key]
+        excl_students = plan["book_excluded"][selected_b_key]
+
+        if not elig_students:
+            st.info("此書目依目前分組／資優條件無對應購買學生。")
+        else:
+            buy_cnt = len(elig_students) - len(excl_students)
+            deducted = len(excl_students) * selected_book["price"]
+            st.write(
+                f"單價 **${int(selected_book['price'])}** ｜ 原預計 **{len(elig_students)}** 人 ｜ "
+                f"已勾選不購買 **{len(excl_students)}** 人（扣除 **${int(deducted):,}**）｜ 實際結算 **{buy_cnt}** 人"
+            )
+            btn_col1, btn_col2, _ = st.columns([1.2, 1.2, 2])
+            all_book_pairs = [(s["key"], selected_b_key) for s in elig_students]
+            with btn_col1:
+                st.button(
+                    "勾選本書全部不買",
+                    key=f"{prefix}_book_excl_all_{selected_b_key}",
+                    on_click=_on_bulk_exclusions,
+                    args=(state_key, ver_key, all_book_pairs, True),
+                )
+            with btn_col2:
+                st.button(
+                    "取消本書全部勾選",
+                    key=f"{prefix}_book_clear_{selected_b_key}",
+                    on_click=_on_bulk_exclusions,
+                    args=(state_key, ver_key, all_book_pairs, False),
+                )
+
+            st.caption("👇 請勾選「已自購／不購買此書」的學生（打勾 ＝ 去除費用）：")
+            cols = st.columns(3)
+            for idx, s in enumerate(elig_students):
+                sk = s["key"]
+                chk_key = f"{prefix}_bybook_{ver}_{selected_b_key}_{sk}"
+                is_excl = (sk, selected_b_key) in active_exclusions
+                with cols[idx % 3]:
+                    st.checkbox(
+                        s["label"],
+                        value=is_excl,
+                        key=chk_key,
+                        on_change=_on_toggle_exclusion,
+                        args=(state_key, chk_key, sk, selected_b_key),
+                    )
+    else:
+        student_keys = [s["key"] for s in student_records]
+        student_labels = {}
+        for s in student_records:
+            sk = s["key"]
+            payable = sum(b["price"] for b in plan["student_buying"][sk])
+            excl_cnt = len(plan["student_excluded"][sk])
+            excl_tag = f"｜已排除 {excl_cnt} 本" if excl_cnt > 0 else ""
+            student_labels[sk] = f"{s['label']}（實繳 ${int(payable):,}{excl_tag}）"
+
+        selected_s_key = st.selectbox(
+            "請選擇學生：",
+            options=student_keys,
+            format_func=lambda k: student_labels[k],
+            key=f"{prefix}_select_student_excl",
+        )
+        elig_books = plan["student_eligible"][selected_s_key]
+        excl_books = plan["student_excluded"][selected_s_key]
+        if not elig_books:
+            st.info("此學生目前無需購買任何書目。")
+        else:
+            orig_amt = sum(b["price"] for b in elig_books)
+            deduct_amt = sum(b["price"] for b in excl_books)
+            final_amt = orig_amt - deduct_amt
+            st.write(
+                f"原應繳 **${int(orig_amt):,}** ｜ 已排除 **{len(excl_books)}** 本（扣除 **${int(deduct_amt):,}**）｜ "
+                f"實繳 **${int(final_amt):,}**"
+            )
+            btn_col1, btn_col2, _ = st.columns([1.2, 1.2, 2])
+            all_stu_pairs = [(selected_s_key, b["key"]) for b in elig_books]
+            with btn_col1:
+                st.button(
+                    "此生全部書目不買",
+                    key=f"{prefix}_stu_excl_all_{selected_s_key}",
+                    on_click=_on_bulk_exclusions,
+                    args=(state_key, ver_key, all_stu_pairs, True),
+                )
+            with btn_col2:
+                st.button(
+                    "取消此生全部勾選",
+                    key=f"{prefix}_stu_clear_{selected_s_key}",
+                    on_click=_on_bulk_exclusions,
+                    args=(state_key, ver_key, all_stu_pairs, False),
+                )
+
+            st.caption("👇 請勾選這位學生「已自購／不購買」的書目（打勾 ＝ 去除費用）：")
+            for b in elig_books:
+                bk = b["key"]
+                chk_key = f"{prefix}_bystu_{ver}_{selected_s_key}_{bk}"
+                is_excl = (selected_s_key, bk) in active_exclusions
+                code_tag = f" [{b['code']}]" if b["code"] not in ["1", "", "全"] else ""
+                st.checkbox(
+                    f"【{b['subj']}】{b['name']}{code_tag}（${int(b['price'])}）",
+                    value=is_excl,
+                    key=chk_key,
+                    on_change=_on_toggle_exclusion,
+                    args=(state_key, chk_key, selected_s_key, bk),
+                )
+
+    # 已勾選免購總覽
+    excl_summary_rows = []
+    for s in student_records:
+        for b in plan["student_excluded"][s["key"]]:
+            excl_summary_rows.append({
+                "座號": s["seat"],
+                "姓名": s["name"],
+                "已排除書目(不購買)": b["name"],
+                "科目": b["subj"],
+                "扣除金額": int(b["price"]),
+            })
+
+    if excl_summary_rows:
+        total_deducted_all = sum(r["扣除金額"] for r in excl_summary_rows)
+        with st.expander(
+            f"📌 目前已勾選 {len(excl_summary_rows)} 筆免購項目（共扣除 ${total_deducted_all:,} 元）",
+            expanded=True,
+        ):
+            st.dataframe(pd.DataFrame(excl_summary_rows), use_container_width=True, hide_index=True)
+            st.button(
+                "🗑️ 清除全部免購勾選",
+                key=f"{prefix}_clear_all_excl",
+                on_click=_on_clear_exclusions,
+                args=(state_key, ver_key),
+            )
+
+    st.divider()
+    st.markdown("#### 👀 個別學生名單與書目預覽（免列印直接查看）")
+
+    total_payable_all = sum(
+        sum(b["price"] for b in plan["student_buying"][s["key"]])
+        for s in student_records
+    )
+    total_excluded_cnt = len(excl_summary_rows)
+    total_excluded_amt = sum(r["扣除金額"] for r in excl_summary_rows)
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("班級學生人數", f"{len(student_records)} 人")
+    m2.metric(
+        "已排除自購免購",
+        f"{total_excluded_cnt} 人次",
+        delta=f"-${total_excluded_amt:,}" if total_excluded_amt > 0 else "無排除",
+        delta_color="normal" if total_excluded_amt == 0 else "inverse",
+    )
+    m3.metric("全班應收總額", f"$ {int(total_payable_all):,}")
+
+    preview_tab1, preview_tab2, preview_tab3 = st.tabs([
+        "📋 全班個別書目總表",
+        "🔍 單一學生明細檢視",
+        "📚 各書目購買人數統計",
+    ])
+
+    with preview_tab1:
+        f_col1, f_col2 = st.columns([2, 1.3])
+        with f_col1:
+            search_kw = st.text_input(
+                "搜尋學生（輸入座號或姓名）",
+                value="",
+                placeholder="例如：03 或 王小明",
+                key=f"{prefix}_preview_search",
+            ).strip()
+        with f_col2:
+            only_excl = st.checkbox(
+                "僅顯示有排除免購的學生",
+                value=False,
+                key=f"{prefix}_preview_only_excl",
+            )
+
+        roster_rows = []
+        for s in student_records:
+            sk = s["key"]
+            buying = plan["student_buying"][sk]
+            excluded = plan["student_excluded"][sk]
+            if only_excl and not excluded:
+                continue
+            if search_kw and (search_kw not in s["seat"] and search_kw not in s["name"]):
+                continue
+            roster_rows.append({
+                "座號": s["seat"],
+                "姓名": s["name"],
+                "分組／資優": format_student_group_summary(s),
+                "購買冊數": len(buying),
+                "購買書目明細": "、".join([f"{b['name']}(${int(b['price'])})" for b in buying]) if buying else "免購",
+                "已排除書目(免購)": "、".join([f"{b['name']}(-${int(b['price'])})" for b in excluded]) if excluded else "無",
+                "應繳總額": int(sum(b["price"] for b in buying)),
+            })
+
+        if roster_rows:
+            st.dataframe(pd.DataFrame(roster_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("沒有符合篩選條件的學生。")
+
+    with preview_tab2:
+        inspect_keys = [s["key"] for s in student_records]
+        inspect_labels = {}
+        for s in student_records:
+            sk = s["key"]
+            amt = int(sum(b["price"] for b in plan["student_buying"][sk]))
+            ex_cnt = len(plan["student_excluded"][sk])
+            ex_tag = f"｜免購 {ex_cnt} 本" if ex_cnt > 0 else ""
+            inspect_labels[sk] = f"{s['label']}（應繳 ${amt:,}{ex_tag}）"
+
+        inspect_s_key = st.selectbox(
+            "選擇學生查看個人完整書目：",
+            options=inspect_keys,
+            format_func=lambda k: inspect_labels[k],
+            key=f"{prefix}_inspect_student",
+        )
+        stu = student_by_key[inspect_s_key]
+        stu_buying = plan["student_buying"][inspect_s_key]
+        stu_excluded = plan["student_excluded"][inspect_s_key]
+        stu_total = int(sum(b["price"] for b in stu_buying))
+
+        st.markdown(f"**{stu['label']}** ｜ 分組狀態：`{format_student_group_summary(stu)}`")
+        if stu_buying:
+            detail_rows = []
+            for b in stu_buying:
+                row_item = {
+                    "科目": b["subj"],
+                    "商品名稱": b["name"],
+                    "分組代號": b["code"],
+                    "單價": int(b["price"]),
+                }
+                if show_publisher:
+                    row_item["書商／來源"] = b["publisher"]
+                detail_rows.append(row_item)
+            st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("此學生本學期無應購項目（免繳費）。")
+
+        st.markdown(f"**💰 應繳總計：`$ {stu_total:,} 元`**（共 {len(stu_buying)} 項）")
+
+        if stu_excluded:
+            excl_txt = "、".join([f"{b['name']} (${int(b['price'])})" for b in stu_excluded])
+            excl_sum = int(sum(b["price"] for b in stu_excluded))
+            st.warning(f"🚫 已排除自購免購（不計費，共扣除 ${excl_sum:,} 元）：{excl_txt}")
+
+    with preview_tab3:
+        book_stat_rows = []
+        for b in book_records:
+            bk = b["key"]
+            elig_cnt = len(plan["book_eligible"][bk])
+            excl_list = plan["book_excluded"][bk]
+            buy_cnt = len(plan["book_buying"][bk])
+            row_item = {
+                "商品名稱": b["name"],
+                "科目": b["subj"],
+                "分組代號": b["code"],
+            }
+            if show_publisher:
+                row_item["書商／來源"] = b["publisher"]
+            row_item.update({
+                "原預計人數": elig_cnt,
+                "免購人數": len(excl_list),
+                "實際結算人數": buy_cnt,
+                "單價": int(b["price"]),
+                "小計金額": int(buy_cnt * b["price"]),
+                "免購名單": "、".join([s["label"] for s in excl_list]) if excl_list else "無",
+            })
+            book_stat_rows.append(row_item)
+        st.dataframe(pd.DataFrame(book_stat_rows), use_container_width=True, hide_index=True)
+
+    return active_exclusions, plan
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_google_sheet_data(xlsx_url):
+    df_students = pd.read_excel(xlsx_url, sheet_name=0).fillna("")
+    df_books = pd.read_excel(xlsx_url, sheet_name=1).fillna("")
+    return df_students, df_books
+
 st.title("📚 班級各項費用與通知單系統")
 st.markdown("請選擇上方分頁切換您要使用的功能！")
 
@@ -132,7 +694,11 @@ with tab1:
         if b_subj == "自" and str(s_sci).strip() in b_code: return True
         return False
 
-    def generate_receipts_excel(df_students, df_books):
+    def generate_receipts_excel(df_students, df_books, excluded_pairs=None):
+        excluded_pairs = excluded_pairs or set()
+        df_s_use = df_students if "_student_key" in df_students.columns else attach_student_keys(df_students, default_group="1")[0]
+        df_b_use = df_books if "_book_key" in df_books.columns else attach_book_keys(df_books, mode="tab1")[0]
+
         wb = Workbook()
         ws = wb.active
         ws.title = "購書通知單(4張一頁)"
@@ -158,16 +724,21 @@ with tab1:
 
         RECEIPT_ROWS = 12
 
-        for i, row in df_students.iterrows():
-            seat, name = row.get("座號", ""), row.get("姓名", "")
+        for i, (_, row) in enumerate(df_s_use.iterrows()):
+            seat, name = normalize_seat(row.get("座號", "")), row.get("姓名", "")
             gifted = row.get("資優類別", "")
             eng, math, sci = row.get("英組", "1"), row.get("數組", "1"), row.get("自組", "1")
+            s_key = row.get("_student_key", "")
 
             student_books = {"國": [], "英": [], "數": [], "自": [], "社會": [], "其他": []}
-            for _, book in df_books.iterrows():
-                b_name, b_subj, b_code, b_price = book.get("商品名稱", ""), book.get("科目", ""), book.get("分組代號", "1"), book.get("單價", 0)
-                if b_subj in ["歷", "地", "公", "社會三科"]: b_subj = "社會"
-                if should_buy_book(b_subj, b_code, gifted, eng, math, sci):
+            for _, book in df_b_use.iterrows():
+                b_name = book.get("商品名稱", "")
+                b_subj = book.get("科目", "")
+                b_code = book.get("分組代號", "1")
+                b_price = safe_price(book.get("單價", 0))
+                b_key = book.get("_book_key", "")
+                if b_subj in ["歷", "地", "公", "歷史", "地理", "公民", "社會三科"]: b_subj = "社會"
+                if should_buy_book(b_subj, b_code, gifted, eng, math, sci) and (s_key, b_key) not in excluded_pairs:
                     if b_subj in student_books: student_books[b_subj].append({"name": b_name, "price": b_price})
                     else: student_books["其他"].append({"name": b_name, "price": b_price})
 
@@ -224,35 +795,55 @@ with tab1:
         wb.save(output)
         return output.getvalue()
 
-    def generate_master_excel(df_students, df_books):
+    def generate_master_excel(df_students, df_books, excluded_pairs=None, student_records=None, plan=None):
+        excluded_pairs = excluded_pairs or set()
+        df_s_use = df_students if "_student_key" in df_students.columns else attach_student_keys(df_students, default_group="1")[0]
+        df_b_use = df_books if "_book_key" in df_books.columns else attach_book_keys(df_books, mode="tab1")[0]
+
         wb = Workbook()
         ws = wb.active
         ws.title = "班級收費總表"
         
         book_rows = []
-        for _, book in df_books.iterrows():
-            b_name, b_subj, b_code, b_price = book.get("商品名稱", ""), book.get("科目", ""), book.get("分組代號", "1"), book.get("單價", 0)
-            b_subj_check = "社會" if b_subj in ["歷", "地", "公", "社會三科"] else b_subj
+        for _, book in df_b_use.iterrows():
+            b_name = book.get("商品名稱", "")
+            b_subj = book.get("科目", "")
+            b_code = book.get("分組代號", "1")
+            b_price = safe_price(book.get("單價", 0))
+            b_key = book.get("_book_key", "")
+            b_subj_check = "社會" if b_subj in ["歷", "地", "公", "歷史", "地理", "公民", "社會三科"] else b_subj
             
             qty = 0
-            for _, s in df_students.iterrows():
-                if should_buy_book(b_subj_check, b_code, s.get("資優類別", ""), s.get("英組", "1"), s.get("數組", "1"), s.get("自組", "1")):
+            for _, s in df_s_use.iterrows():
+                s_key = s.get("_student_key", "")
+                if should_buy_book(b_subj_check, b_code, s.get("資優類別", ""), s.get("英組", "1"), s.get("數組", "1"), s.get("自組", "1")) and (s_key, b_key) not in excluded_pairs:
                     qty += 1
             book_rows.append([b_name, b_subj, b_code, qty, b_price])
 
         student_rows = []
-        for _, s in df_students.iterrows():
-            seat, name = s.get("座號", ""), s.get("姓名", "")
+        has_any_excl = False
+        for _, s in df_s_use.iterrows():
+            seat, name = normalize_seat(s.get("座號", "")), s.get("姓名", "")
             gifted = s.get("資優類別", "")
             eng, math, sci = s.get("英組", "1"), s.get("數組", "1"), s.get("自組", "1")
+            s_key = s.get("_student_key", "")
             
             subtotal = 0
-            for _, book in df_books.iterrows():
-                b_subj, b_code, b_price = book.get("科目", ""), book.get("分組代號", "1"), book.get("單價", 0)
-                b_subj_check = "社會" if b_subj in ["歷", "地", "公", "社會三科"] else b_subj
+            excl_names = []
+            for _, book in df_b_use.iterrows():
+                b_name = book.get("商品名稱", "")
+                b_subj = book.get("科目", "")
+                b_code = book.get("分組代號", "1")
+                b_price = safe_price(book.get("單價", 0))
+                b_key = book.get("_book_key", "")
+                b_subj_check = "社會" if b_subj in ["歷", "地", "公", "歷史", "地理", "公民", "社會三科"] else b_subj
                 if should_buy_book(b_subj_check, b_code, gifted, eng, math, sci):
-                    subtotal += b_price
-            student_rows.append([seat, name, gifted, eng, math, sci, subtotal])
+                    if (s_key, b_key) in excluded_pairs:
+                        excl_names.append(str(b_name))
+                        has_any_excl = True
+                    else:
+                        subtotal += b_price
+            student_rows.append([seat, name, gifted, eng, math, sci, subtotal, "、".join(excl_names)])
 
         headers_left = ["商品名稱", "科目", "分組代號", "購買數量", "單價"]
         for col_idx, h in enumerate(headers_left, 1):
@@ -260,6 +851,8 @@ with tab1:
             cell.font = Font(bold=True); cell.alignment = Alignment(horizontal="center")
 
         headers_right = ["座號", "姓名", "資優", "英組", "數組", "自組", "應收總額"]
+        if has_any_excl:
+            headers_right.append("已自購免購")
         for col_idx, h in enumerate(headers_right, 7):
             cell = ws.cell(row=1, column=col_idx, value=h)
             cell.font = Font(bold=True); cell.alignment = Alignment(horizontal="center")
@@ -274,15 +867,19 @@ with tab1:
                 if c_idx > 1: cell.alignment = Alignment(horizontal="center")
 
         for r_idx, s_row in enumerate(student_rows, 2):
-            for c_idx, val in enumerate(s_row, 7):
+            row_out = s_row if has_any_excl else s_row[:7]
+            for c_idx, val in enumerate(row_out, 7):
                 cell = ws.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = thin_border
-                if c_idx != 8: cell.alignment = Alignment(horizontal="center")
+                if c_idx == 14:
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                elif c_idx != 8:
+                    cell.alignment = Alignment(horizontal="center")
                 if c_idx == 13: cell.font = Font(bold=True)
 
         last_row = max(len(book_rows), len(student_rows)) + 2
         ws.cell(row=last_row, column=12, value="班級總計").font = Font(bold=True)
-        total_sum = sum([s[-1] for s in student_rows])
+        total_sum = sum([s[6] for s in student_rows])
         tot_cell = ws.cell(row=last_row, column=13, value=total_sum)
         tot_cell.font = Font(bold=True, color="FF0000"); tot_cell.border = thin_border
 
@@ -293,6 +890,11 @@ with tab1:
         ws.column_dimensions['I'].width = 8 ; ws.column_dimensions['J'].width = 8
         ws.column_dimensions['K'].width = 8 ; ws.column_dimensions['L'].width = 8
         ws.column_dimensions['M'].width = 12
+        if has_any_excl:
+            ws.column_dimensions['N'].width = 28
+
+        if student_records is not None and plan is not None:
+            write_individual_booklist_sheet(wb, student_records, plan)
 
         output = io.BytesIO()
         wb.save(output)
@@ -300,31 +902,97 @@ with tab1:
 
     st.subheader("🛠️ 開始作業")
     default_url = "https://reurl.cc/K2LgNe"
-    sheet_url = st.text_input("👇 請在下方輸入您的試算表網址：", value=default_url)
+    url_col, refresh_col = st.columns([4, 1])
+    with url_col:
+        sheet_url = st.text_input("👇 請在下方輸入您的試算表網址：", value=default_url)
+    with refresh_col:
+        st.write("")
+        st.write("")
+        if st.button("🔄 重新讀取", key="tab1_refresh_sheet"):
+            load_google_sheet_data.clear()
 
     if sheet_url:
         xlsx_url = get_google_sheet_xlsx_url(sheet_url)
         if xlsx_url:
             try:
                 with st.spinner("正在連線至 Google Sheets 讀取資料..."):
-                    df_students = pd.read_excel(xlsx_url, sheet_name=0).fillna("")
-                    df_books = pd.read_excel(xlsx_url, sheet_name=1).fillna("")
-                
+                    df_students_raw, df_books_raw = load_google_sheet_data(xlsx_url)
+
+                df_students = df_students_raw.copy()
+                if "姓名" in df_students.columns:
+                    df_students = df_students[df_students["姓名"].astype(str).str.strip() != ""].reset_index(drop=True)
+                df_books = df_books_raw.copy()
+                if "商品名稱" in df_books.columns:
+                    df_books = df_books[df_books["商品名稱"].astype(str).str.strip() != ""].reset_index(drop=True)
+
+                df_students, tab1_student_records = attach_student_keys(df_students, default_group="1")
+                df_books, tab1_book_records = attach_book_keys(df_books, mode="tab1")
+
                 st.success(f"✅ 讀取成功！共載入 {len(df_students)} 位學生、{len(df_books)} 筆書目報價。")
-                
+
+                def tab1_eligibility(student, book):
+                    return should_buy_book(
+                        book["subj_check"],
+                        book["code"],
+                        student["gifted"],
+                        student["eng"],
+                        student["math"],
+                        student["sci"],
+                    )
+
+                st.divider()
+                tab1_excluded_pairs, tab1_plan = render_exclusion_and_preview_section(
+                    prefix="tab1",
+                    student_records=tab1_student_records,
+                    book_records=tab1_book_records,
+                    eligibility_fn=tab1_eligibility,
+                    show_publisher=False,
+                )
+
+                st.divider()
+                tab1_sig = (
+                    xlsx_url,
+                    tuple(s["key"] for s in tab1_student_records),
+                    tuple(b["key"] for b in tab1_book_records),
+                    tuple(sorted(tab1_excluded_pairs)),
+                )
+                if st.session_state.get("tab1_report_sig") != tab1_sig:
+                    st.session_state.tab1_receipts_output = None
+                    st.session_state.tab1_master_output = None
+
                 if st.button("🚀 開始產生檔案", type="primary"):
                     with st.spinner("系統正在計算與排版中..."):
-                        receipts_data = generate_receipts_excel(df_students, df_books)
-                        master_data = generate_master_excel(df_students, df_books)
-                        
+                        st.session_state.tab1_receipts_output = generate_receipts_excel(
+                            df_students, df_books, excluded_pairs=tab1_excluded_pairs
+                        )
+                        st.session_state.tab1_master_output = generate_master_excel(
+                            df_students,
+                            df_books,
+                            excluded_pairs=tab1_excluded_pairs,
+                            student_records=tab1_student_records,
+                            plan=tab1_plan,
+                        )
+                        st.session_state.tab1_report_sig = tab1_sig
                     st.balloons()
+
+                if st.session_state.get("tab1_receipts_output") and st.session_state.get("tab1_master_output"):
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.download_button(label="📥 下載【家長通知單】(A4列印版)", data=receipts_data, file_name="家長購書通知單.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        st.download_button(
+                            label="📥 下載【家長通知單】(A4列印版)",
+                            data=st.session_state.tab1_receipts_output,
+                            file_name="家長購書通知單.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
                     with col2:
-                        st.download_button(label="📥 下載【導師對帳總表】(收費明細)", data=master_data, file_name="導師收費對帳總表.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        st.download_button(
+                            label="📥 下載【導師對帳總表】(收費明細)",
+                            data=st.session_state.tab1_master_output,
+                            file_name="導師收費對帳總表.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
             except Exception as e:
-                st.error("❌ 讀取失敗！請確認網址與權限。")
+                st.error(f"❌ 讀取失敗！請確認網址與權限。（{e}）")
 
 
 # =====================================================================
@@ -409,6 +1077,7 @@ with tab2:
 
     def parse_horizontal_group_file(uploaded_file, subj_hint=""):
         # 處理名單之合併儲存格與分組代號繼承
+        uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'): df_grp = pd.read_csv(uploaded_file, header=None).fillna("")
         else: df_grp = pd.read_excel(uploaded_file, header=None).fillna("")
         header_idx = -1
@@ -501,26 +1170,36 @@ with tab2:
             return check_group_match(s_eng, b_code) or check_group_match(s_math, b_code)
         return False
 
-    def generate_smart_pdf(df_students, df_books_clean):
+    def generate_smart_pdf(df_students, df_books_clean, excluded_pairs=None, show_excluded_note=True):
+        excluded_pairs = excluded_pairs or set()
+        df_s_use = df_students if "_student_key" in df_students.columns else attach_student_keys(df_students, default_group="無")[0]
+        df_b_use = df_books_clean if "_book_key" in df_books_clean.columns else attach_book_keys(df_books_clean, mode="tab2")[0]
+
         pdf_io = io.BytesIO()
         c = canvas.Canvas(pdf_io, pagesize=A4)
         width, height = A4
         pdf_font = 'CustomFont' if HAS_FONT else 'Helvetica'
         
-        for _, student in df_students.iterrows():
-            seat = str(student.get("座號", "")).split('.')[0]
+        for _, student in df_s_use.iterrows():
+            seat = normalize_seat(student.get("座號", ""))
             name = str(student.get("姓名", "")).strip()
             s_eng = str(student.get("英組", "無")).strip()
             s_math = str(student.get("數組", "無")).strip()
             s_sci = str(student.get("自組", "無")).strip()
             s_gifted = str(student.get("資優類別", "無")).strip()
+            s_key = student.get("_student_key", "")
 
             personal_list = []
+            excluded_names = []
             total_amount = 0
-            for _, b in df_books_clean.iterrows():
+            for _, b in df_b_use.iterrows():
+                b_key = b.get("_book_key", "")
                 if is_book_for_student(b['subj'], b['code'], s_eng, s_math, s_sci, s_gifted):
-                    personal_list.append((b['name'], b['price']))
-                    total_amount += b['price']
+                    if (s_key, b_key) in excluded_pairs:
+                        excluded_names.append(str(b['name']))
+                    else:
+                        personal_list.append((b['name'], b['price']))
+                        total_amount += b['price']
 
             c.setFont(pdf_font, 24)
             c.drawCentredString(width/2, height - 80, "學 期 各 項 費 用 通 知 單")
@@ -541,8 +1220,9 @@ with tab2:
             c.setLineWidth(0.5)
             c.line(60, height - 180, width - 60, height - 180)
             
+            has_note = bool(show_excluded_note and excluded_names)
             start_y = height - 205
-            end_y = 160 
+            end_y = 195 if has_note else 160
             available_space = start_y - end_y
             item_count = len(personal_list)
             
@@ -574,6 +1254,18 @@ with tab2:
             c.setFillColorRGB(0.8, 0, 0)
             c.drawRightString(width - 70, y_pos - 20, f"$ {int(total_amount)} 元")
             c.setFillColorRGB(0, 0, 0)
+
+            if has_note:
+                note_text = "※ 已自購免購（不計費）：" + "、".join(excluded_names)
+                note_font_size = 9
+                note_lines = wrap_pdf_text(note_text, pdf_font, note_font_size, width - 140, max_lines=3)
+                c.setFont(pdf_font, note_font_size)
+                c.setFillColorRGB(0.35, 0.35, 0.35)
+                note_y = y_pos - 42
+                for n_line in note_lines:
+                    c.drawString(70, note_y, n_line)
+                    note_y -= 12
+                c.setFillColorRGB(0, 0, 0)
             
             box_y = 55
             c.setFont(pdf_font, 12)
@@ -586,29 +1278,44 @@ with tab2:
         pdf_io.seek(0)
         return pdf_io
 
-    def fill_sheet_data(ws, sheet_title, df_students, df_books):
+    def fill_sheet_data(ws, sheet_title, df_students, df_books, excluded_pairs=None):
+        excluded_pairs = excluded_pairs or set()
+        df_s_use = df_students if "_student_key" in df_students.columns else attach_student_keys(df_students, default_group="無")[0]
+        df_b_use = df_books if "_book_key" in df_books.columns else attach_book_keys(df_books, mode="tab2")[0]
+
         ws.title = sheet_title
         book_rows = []
-        for _, book in df_books.iterrows():
+        for _, book in df_b_use.iterrows():
             b_name, b_subj, b_price = book['name'], book['subj'], book['price']
             b_code_str = str(book['code']).strip()
+            b_key = book.get("_book_key", "")
             qty = 0
-            for _, s in df_students.iterrows():
+            for _, s in df_s_use.iterrows():
                 s_eng, s_math, s_sci = str(s.get("英組","無")), str(s.get("數組","無")), str(s.get("自組","無"))
                 s_gifted = str(s.get("資優類別", "無"))
-                if is_book_for_student(b_subj, b_code_str, s_eng, s_math, s_sci, s_gifted): qty += 1
+                s_key = s.get("_student_key", "")
+                if is_book_for_student(b_subj, b_code_str, s_eng, s_math, s_sci, s_gifted) and (s_key, b_key) not in excluded_pairs:
+                    qty += 1
             book_rows.append([b_name, b_subj, b_code_str, qty, b_price])
 
         student_rows = []
-        for _, s in df_students.iterrows():
-            seat, name = str(s.get("座號", "")).split('.')[0], s.get("姓名", "")
+        has_any_excl = False
+        for _, s in df_s_use.iterrows():
+            seat, name = normalize_seat(s.get("座號", "")), s.get("姓名", "")
             gifted = str(s.get("資優類別", "無"))
             s_eng, s_math, s_sci = str(s.get("英組","無")), str(s.get("數組","無")), str(s.get("自組","無"))
+            s_key = s.get("_student_key", "")
             subtotal = 0
-            for _, book in df_books.iterrows():
+            excl_names = []
+            for _, book in df_b_use.iterrows():
+                b_key = book.get("_book_key", "")
                 if is_book_for_student(book['subj'], book['code'], s_eng, s_math, s_sci, gifted):
-                    subtotal += book['price']
-            student_rows.append([seat, name, gifted, s_eng, s_math, s_sci, subtotal])
+                    if (s_key, b_key) in excluded_pairs:
+                        excl_names.append(str(book['name']))
+                        has_any_excl = True
+                    else:
+                        subtotal += book['price']
+            student_rows.append([seat, name, gifted, s_eng, s_math, s_sci, subtotal, "、".join(excl_names)])
 
         headers_left = ["項目名稱", "科目", "分組代號", "結算數量", "單價"]
         for col_idx, h in enumerate(headers_left, 1):
@@ -616,6 +1323,8 @@ with tab2:
             cell.font = Font(bold=True); cell.alignment = Alignment(horizontal="center")
 
         headers_right = ["座號", "姓名", "資優", "英組", "數組", "自組", "應收總額"]
+        if has_any_excl:
+            headers_right.append("已自購免購")
         for col_idx, h in enumerate(headers_right, 7):
             cell = ws.cell(row=1, column=col_idx, value=h)
             cell.font = Font(bold=True); cell.alignment = Alignment(horizontal="center")
@@ -628,15 +1337,19 @@ with tab2:
                 if c_idx > 1: cell.alignment = Alignment(horizontal="center")
 
         for r_idx, s_row in enumerate(student_rows, 2):
-            for c_idx, val in enumerate(s_row, 7):
+            row_out = s_row if has_any_excl else s_row[:7]
+            for c_idx, val in enumerate(row_out, 7):
                 cell = ws.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = thin_border
-                if c_idx != 8: cell.alignment = Alignment(horizontal="center")
+                if c_idx == 14:
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                elif c_idx != 8:
+                    cell.alignment = Alignment(horizontal="center")
                 if c_idx == 13: cell.font = Font(bold=True)
 
         last_row = max(len(book_rows), len(student_rows)) + 2
         ws.cell(row=last_row, column=12, value="單頁總計").font = Font(bold=True)
-        total_sum = sum([s[-1] for s in student_rows])
+        total_sum = sum([s[6] for s in student_rows])
         tot_cell = ws.cell(row=last_row, column=13, value=total_sum)
         tot_cell.font = Font(bold=True, color="FF0000"); tot_cell.border = thin_border
         
@@ -647,18 +1360,27 @@ with tab2:
         ws.column_dimensions['I'].width = 8 ; ws.column_dimensions['J'].width = 8
         ws.column_dimensions['K'].width = 8 ; ws.column_dimensions['L'].width = 8
         ws.column_dimensions['M'].width = 12
+        if has_any_excl:
+            ws.column_dimensions['N'].width = 28
 
-    def generate_excel_master_dynamic(df_students, df_books_clean):
+    def generate_excel_master_dynamic(df_students, df_books_clean, excluded_pairs=None, student_records=None, plan=None):
+        excluded_pairs = excluded_pairs or set()
+        df_s_use = df_students if "_student_key" in df_students.columns else attach_student_keys(df_students, default_group="無")[0]
+        df_b_use = df_books_clean if "_book_key" in df_books_clean.columns else attach_book_keys(df_books_clean, mode="tab2")[0]
+
         wb = Workbook()
         ws1 = wb.active
-        fill_sheet_data(ws1, "班級收費總表(全)", df_students, df_books_clean)
+        fill_sheet_data(ws1, "班級收費總表(全)", df_s_use, df_b_use, excluded_pairs=excluded_pairs)
+
+        if student_records is not None and plan is not None:
+            write_individual_booklist_sheet(wb, student_records, plan)
         
-        unique_publishers = df_books_clean['publisher'].unique()
+        unique_publishers = df_b_use['publisher'].unique()
         for pub in unique_publishers:
-            df_pub = df_books_clean[df_books_clean['publisher'] == pub]
+            df_pub = df_b_use[df_b_use['publisher'] == pub]
             ws_pub = wb.create_sheet()
             safe_pub_name = str(pub).replace("/", "").replace("\\", "")[:12]
-            fill_sheet_data(ws_pub, f"{safe_pub_name}對帳表", df_students, df_pub)
+            fill_sheet_data(ws_pub, f"{safe_pub_name}對帳表", df_s_use, df_pub, excluded_pairs=excluded_pairs)
             
         output = io.BytesIO()
         wb.save(output)
@@ -667,11 +1389,13 @@ with tab2:
     # 執行系統主程式
     if file_class and file_books_list and len(file_books_list) > 0:
         try:
+            file_class.seek(0)
             df_temp = pd.read_excel(file_class, header=None).fillna("")
             header_idx = 0
             for idx, row in df_temp.iterrows():
                 if any("姓名" in str(v) for v in row.values):
                     header_idx = idx ; break
+            file_class.seek(0)
             df_s = pd.read_excel(file_class, skiprows=header_idx).fillna("")
             
             c_name = find_column(df_s, ["姓名", "名稱", "學生"], "姓名")
@@ -711,6 +1435,9 @@ with tab2:
                         df_s.at[idx, "數組"] = "免"
                         df_s.at[idx, "自組"] = "免"
 
+            df_s = df_s.reset_index(drop=True)
+            df_s, tab2_student_records = attach_student_keys(df_s, default_group="無")
+
             with st.expander("名單與分組狀態預覽"):
                 st.write("請確認全班名單與分組判定結果是否正確：")
                 st.dataframe(df_s[["座號", "姓名", "英組", "數組", "自組", "資優類別"]])
@@ -723,6 +1450,7 @@ with tab2:
                 header_skip = 0
                 keywords_header = ["品名", "商品", "名稱", "單價", "價格", "金額", "數量", "件數"]
                 
+                fb.seek(0)
                 if fb.name.endswith('.csv'):
                     bytes_data = fb.read()
                     lines = []
@@ -820,32 +1548,90 @@ with tab2:
                 df_books_clean['subj'] = df_books_clean['subj'].apply(lambda x: "社會" if x in ["歷", "地", "公", "歷史", "地理", "公民"] else x)
 
             st.divider()
-            st.markdown("#### 步驟三：移除不需購買之書籍 (若無請跳過)")
+            st.markdown("#### 步驟三：移除全班皆不需購買之書籍 (若無請跳過)")
             if not df_books_clean.empty:
                 all_book_names = df_books_clean['name'].unique().tolist()
                 remove_books = st.multiselect(
-                    "若書商提供之報價單包含不需購買之品項，請於此處選擇並剔除：",
+                    "若書商提供之報價單包含全班不需購買之品項，請於此處選擇並剔除：",
                     options=all_book_names,
                     help="被選中的書籍將不會出現在最終的通知單與對帳表中。"
                 )
                 if remove_books:
-                    df_books_clean = df_books_clean[~df_books_clean['name'].isin(remove_books)]
+                    df_books_clean = df_books_clean[~df_books_clean['name'].isin(remove_books)].reset_index(drop=True)
                     st.success(f"已成功剔除 {len(remove_books)} 項書籍。")
+
+            tab2_book_records = []
+            if not df_books_clean.empty:
+                df_books_clean, tab2_book_records = attach_book_keys(df_books_clean, mode="tab2")
 
             with st.expander("書目與收費項目預覽"):
                 st.write("系統已讀取以下書目與收費資料。若代號有缺漏，系統會自動嘗試依據人數與科目進行校正：")
                 if not df_books_clean.empty:
-                    st.dataframe(df_books_clean)
+                    st.dataframe(df_books_clean.drop(columns=["_book_key"], errors="ignore"))
                 else:
                     st.warning("尚未讀取到有效之書目資料，請確認檔案格式。")
 
+            tab2_excluded_pairs = set()
+            tab2_plan = None
+            if not df_books_clean.empty:
+                def tab2_eligibility(student, book):
+                    return is_book_for_student(
+                        book["subj"],
+                        book["code"],
+                        student["eng"],
+                        student["math"],
+                        student["sci"],
+                        student["gifted"],
+                    )
+
+                st.divider()
+                st.markdown("#### 步驟四：個別學生已自購免購設定與書目預覽")
+                tab2_excluded_pairs, tab2_plan = render_exclusion_and_preview_section(
+                    prefix="tab2",
+                    student_records=tab2_student_records,
+                    book_records=tab2_book_records,
+                    eligibility_fn=tab2_eligibility,
+                    show_publisher=True,
+                )
+
             st.divider()
-            st.markdown("#### 步驟四：產生報表")
+            st.markdown("#### 步驟五：產生報表")
+            show_excluded_note_pdf = st.checkbox(
+                "在 PDF 家長通知單上註明「已自購免購（不計費）」書目",
+                value=True,
+                key="tab2_pdf_show_excl_note",
+            )
+
+            tab2_sig = (
+                tuple(s["key"] for s in tab2_student_records),
+                tuple(b["key"] for b in tab2_book_records),
+                tuple(sorted(tab2_excluded_pairs)),
+                show_excluded_note_pdf,
+            )
+            if st.session_state.get("tab2_report_sig") != tab2_sig:
+                if st.session_state.get("tab2_report_sig") is not None and (
+                    st.session_state.pdf_output or st.session_state.excel_output
+                ):
+                    st.info("ℹ️ 名單或免購設定已更新，請重新點擊下方按鈕產生最新報表。")
+                st.session_state.pdf_output = None
+                st.session_state.excel_output = None
 
             if not df_books_clean.empty and st.button("確認無誤，開始產生報表", type="primary"):
                 with st.spinner("正在產生 PDF 與 Excel 檔案中..."):
-                    st.session_state.pdf_output = generate_smart_pdf(df_s, df_books_clean)
-                    st.session_state.excel_output = generate_excel_master_dynamic(df_s, df_books_clean)
+                    st.session_state.pdf_output = generate_smart_pdf(
+                        df_s,
+                        df_books_clean,
+                        excluded_pairs=tab2_excluded_pairs,
+                        show_excluded_note=show_excluded_note_pdf,
+                    )
+                    st.session_state.excel_output = generate_excel_master_dynamic(
+                        df_s,
+                        df_books_clean,
+                        excluded_pairs=tab2_excluded_pairs,
+                        student_records=tab2_student_records,
+                        plan=tab2_plan,
+                    )
+                    st.session_state.tab2_report_sig = tab2_sig
                     st.success("報表產生完成！請點擊下方按鈕下載。")
 
             if st.session_state.pdf_output and st.session_state.excel_output:
