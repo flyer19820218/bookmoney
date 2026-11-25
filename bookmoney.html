@@ -738,6 +738,19 @@
         </div>
       </div>
 
+      <div class="toolbar" style="margin-top:14px;">
+        <label style="display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:14px;">
+          年級分組模式：
+          <select id="gradeModeSelect" class="fee-select" style="width:auto;">
+            <option value="auto">自動偵測（依名單班號判定）</option>
+            <option value="g1">一年級（不分組）</option>
+            <option value="g2">二年級（英、數分組；自然不分組）</option>
+            <option value="g3">三年級（英、數、自分組；數自同組）</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="gradeDiagnosticBox" class="success-box hidden"></div>
       <div id="parseErrorBox" class="warn-box hidden"></div>
 
       <details class="panel hidden" id="studentPreviewPanel">
@@ -901,15 +914,20 @@
     }
 
     function safePrice(val) {
-      const n = Number(String(val == null ? "" : val).replace(/,/g, "").trim());
+      const s = String(val == null ? "" : val).replace(/[$,￥NT元\s]/gi, "").trim();
+      if (!s) return 0;
+      const n = Number(s);
       if (!Number.isFinite(n) || n < 0) return 0;
       return Math.abs(n - Math.round(n)) < 1e-6 ? Math.round(n) : n;
     }
 
     function findColumn(headers, keywords) {
-      for (const col of headers) {
-        const s = String(col == null ? "" : col);
-        if (keywords.some(kw => s.includes(kw))) return col;
+      // 依關鍵字優先順序尋找（確保「單價」優先於「金額」、「姓名」優先於「班級名稱」）
+      for (const kw of keywords) {
+        for (const col of headers) {
+          const s = String(col == null ? "" : col);
+          if (s.includes(kw)) return col;
+        }
       }
       return null;
     }
@@ -1140,8 +1158,66 @@
     }
 
     // =========================================================================
-    // 檔案解析（CSV 支援 UTF-8 / Big5；Excel 使用 SheetJS）
+    // 檔案解析（CSV 使用純 JS 解析避免 SheetJS 中文亂碼；Excel 使用 SheetJS）
     // =========================================================================
+    function parseCSVToMatrix(rawText) {
+      const text = String(rawText || "").replace(/^\uFEFF/, "");
+      const rows = [];
+      let row = [];
+      let field = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i + 1] === '"') {
+              field += '"';
+              i++;
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            field += ch;
+          }
+        } else {
+          if (ch === '"') {
+            inQuotes = true;
+          } else if (ch === ",") {
+            row.push(field);
+            field = "";
+          } else if (ch === "\r") {
+            if (text[i + 1] === "\n") i++;
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = "";
+          } else if (ch === "\n") {
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = "";
+          } else {
+            field += ch;
+          }
+        }
+      }
+      if (field.length > 0 || row.length > 0) {
+        row.push(field);
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    function detectGradeFromMatrix(matrix) {
+      for (let r = 0; r < Math.min(matrix.length, 6); r++) {
+        const line = (matrix[r] || []).map(v => String(v == null ? "" : v)).join(" ");
+        const m = line.match(/(?:^|[^\d])([123789])\d{2}(?:[^\d]|$)/);
+        if (m) return parseInt(m[1], 10);
+      }
+      return 0;
+    }
+
     async function readFileAsMatrix(file) {
       const buf = await file.arrayBuffer();
       const lower = file.name.toLowerCase();
@@ -1156,9 +1232,7 @@
             text = new TextDecoder("utf-8").decode(buf);
           }
         }
-        const wb = XLSX.read(text, { type: "string", raw: false });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+        return parseCSVToMatrix(text);
       }
       const wb = XLSX.read(buf, { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -1241,9 +1315,13 @@
 
       for (let r = headerIdx + 1; r < matrix.length; r++) {
         const row = matrix[r] || [];
+        const rowCompact = row.map(v => String(v == null ? "" : v).replace(/\s+/g, "")).join("");
+        if (/^(?:合計|總計|總金額|總單價|小計|共計|總和)/.test(rowCompact) || rowCompact.includes("總金額") || rowCompact.includes("總單價")) {
+          continue;
+        }
         const priceVal = safePrice(row[iPrice]);
         const rawName = String(row[iName] == null ? "" : row[iName]).trim();
-        if (!rawName || priceVal <= 0) continue;
+        if (!rawName || /^(?:合計|總計|總金額|總單價|小計|共計|總和)/.test(rawName) || priceVal <= 0) continue;
 
         const rawNoteCell = iCode >= 0 ? String(row[iCode] == null ? "" : row[iCode]).trim() : "";
         const rawCode = iCode >= 0 ? standardizeBookCode(rawNoteCell) : "1";
@@ -1269,8 +1347,10 @@
     if (typeof document !== "undefined") {
       const state = {
         rawClassStudents: null,
+        classGradeHint: 0,
         engMap: null,
         mathMap: null,
+        gradeMode: "auto", // "auto" | "g1" | "g2" | "g3"
         rawUploadedBooks: [],
         customFees: [{ name: "", subj: "其他", code: "1", price: 0 }],
         removedBookNames: new Set(),
@@ -1295,10 +1375,34 @@
         }
       }
 
-      function buildStudents() {
-        if (!state.rawClassStudents) return [];
+      function resolveEffectiveGrade() {
+        if (state.gradeMode === "g1") return 1;
+        if (state.gradeMode === "g2") return 2;
+        if (state.gradeMode === "g3") return 3;
+        // auto: 優先從數學分組名單、英文分組名單或班級名條偵測年級
         const hasEng = state.engMap !== null;
         const hasMath = state.mathMap !== null;
+        if (!hasEng && !hasMath) return 1;
+        if (hasMath) {
+          const grades = Object.values(state.mathMap).map(v => v[1]).filter(g => g > 0);
+          if (grades.some(g => g === 9 || g === 3)) return 3;
+          if (grades.some(g => g === 8 || g === 2)) return 2;
+        }
+        if (hasEng) {
+          const grades = Object.values(state.engMap).map(v => v[1]).filter(g => g > 0);
+          if (grades.some(g => g === 9 || g === 3)) return 3;
+          if (grades.some(g => g === 8 || g === 2)) return 2;
+        }
+        if (state.classGradeHint === 9 || state.classGradeHint === 3) return 3;
+        if (state.classGradeHint === 8 || state.classGradeHint === 2) return 2;
+        return 2;
+      }
+
+      function buildStudents() {
+        if (!state.rawClassStudents) return [];
+        const effGrade = resolveEffectiveGrade();
+        const hasEng = state.engMap !== null && effGrade !== 1;
+        const hasMath = state.mathMap !== null && effGrade !== 1;
         const merged = state.rawClassStudents.map(s => {
           const out = { ...s };
           const cleanName = out.name.replace(/\s+/g, "").trim();
@@ -1314,7 +1418,11 @@
             if (state.mathMap[cleanName]) {
               const [grpCode, grade] = state.mathMap[cleanName];
               out.math = grpCode;
-              out.sci = (grade === 9 || grade === 3) ? grpCode : "免";
+              if (effGrade === 3 || grade === 9 || grade === 3) {
+                out.sci = grpCode;
+              } else {
+                out.sci = "免";
+              }
             } else {
               if (["無", "", "1"].includes(out.gifted)) out.gifted = "數資";
               else if (out.gifted === "語資") out.gifted = "語資/數資";
@@ -1387,8 +1495,29 @@
         const students = buildStudents();
         const allBooks = buildBooks(students);
 
-        // 學生預覽
+        // 學生預覽與年級分組狀態診斷
+        const diagBox = $("gradeDiagnosticBox");
         if (students.length) {
+          const effGrade = resolveEffectiveGrade();
+          const gradeText = effGrade === 1
+            ? "一年級（不分組）"
+            : effGrade === 2
+              ? "二年級（英、數分組；自然不分組）"
+              : "三年級（英、數、自分組；數自同組）";
+          const skipSet = new Set(["", "1", "無", "免", "nan"]);
+          const engCnt = students.filter(s => !skipSet.has(s.eng)).length;
+          const mathCnt = students.filter(s => !skipSet.has(s.math)).length;
+          const sciCnt = students.filter(s => !skipSet.has(s.sci)).length;
+          const langGift = students.filter(s => s.gifted.includes("語資")).length;
+          const mathGift = students.filter(s => s.gifted.includes("數資")).length;
+          diagBox.classList.remove("hidden");
+          diagBox.innerHTML =
+            `<strong>目前套用規則：${gradeText}</strong> ｜ ` +
+            `全班 <strong>${students.length}</strong> 人` +
+            (effGrade > 1
+              ? `（英組 ${engCnt} 人、數組 ${mathCnt} 人、自組 ${sciCnt} 人｜語資 ${langGift} 人、數資 ${mathGift} 人）`
+              : "（全班依同一書目計費）");
+
           $("studentPreviewPanel").classList.remove("hidden");
           $("studentPreviewSummary").textContent = `名單與分組狀態預覽（共 ${students.length} 位學生）`;
           $("studentPreviewTable").innerHTML = `
@@ -1408,6 +1537,7 @@
               </tbody>
             </table>`;
         } else {
+          diagBox.classList.add("hidden");
           $("studentPreviewPanel").classList.add("hidden");
         }
 
@@ -2020,6 +2150,7 @@
         try {
           const mat = await readFileAsMatrix(file);
           state.rawClassStudents = parseClassMatrix(mat);
+          state.classGradeHint = detectGradeFromMatrix(mat);
           $("boxClass").classList.add("loaded");
           $("statusClass").textContent = `✅ 已載入 ${file.name}（${state.rawClassStudents.length} 位學生）`;
           renderAll();
@@ -2093,6 +2224,11 @@
         } catch (err) {
           showParseError(`讀取數學／自然分組名單失敗：${err.message}`);
         }
+      });
+
+      $("gradeModeSelect").addEventListener("change", e => {
+        state.gradeMode = e.target.value;
+        renderAll();
       });
 
       $("btnAddFee").addEventListener("click", () => {
