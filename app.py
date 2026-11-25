@@ -264,13 +264,11 @@ def write_individual_booklist_sheet(wb, student_records, plan):
     ws.column_dimensions['F'].width = 30
     ws.column_dimensions['G'].width = 12
 
-def _on_toggle_exclusion(state_key, chk_key, s_key, b_key):
-    exclusions = set(st.session_state.get(state_key, set()))
-    if st.session_state.get(chk_key, False):
-        exclusions.add((s_key, b_key))
-    else:
-        exclusions.discard((s_key, b_key))
-    st.session_state[state_key] = exclusions
+def _trigger_rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
 
 def _on_bulk_exclusions(state_key, ver_key, pairs, exclude=True):
     exclusions = set(st.session_state.get(state_key, set()))
@@ -288,6 +286,7 @@ def _on_clear_exclusions(state_key, ver_key):
 def render_exclusion_and_preview_section(prefix, student_records, book_records, eligibility_fn, show_publisher=False):
     state_key = f"{prefix}_excluded_pairs"
     ver_key = f"{prefix}_excluded_ver"
+    msg_key = f"{prefix}_excluded_msg"
     if state_key not in st.session_state:
         st.session_state[state_key] = set()
     if ver_key not in st.session_state:
@@ -307,7 +306,10 @@ def render_exclusion_and_preview_section(prefix, student_records, book_records, 
     ver = st.session_state[ver_key]
 
     st.markdown("#### 🙋 個別學生「已自購／不購買」書籍勾選")
-    st.caption("若有學生已自行購買某本書，請在下方選單中選擇書目（或選擇學生）並打勾，系統會自動去除該生費用並扣除書商訂購數量。")
+    st.caption("若有學生已自行購買某本書，請在下方選單中選擇書目（或選擇學生），一次勾選完所有不買的名單後，再按「✅ 勾選完畢，套用免購名單」。")
+
+    if st.session_state.get(msg_key):
+        st.success(st.session_state.pop(msg_key))
 
     if not student_records or not book_records:
         st.info("目前尚無完整的學生或書目資料可設定。")
@@ -349,8 +351,47 @@ def render_exclusion_and_preview_section(prefix, student_records, book_records, 
             deducted = len(excl_students) * selected_book["price"]
             st.write(
                 f"單價 **${int(selected_book['price'])}** ｜ 原預計 **{len(elig_students)}** 人 ｜ "
-                f"已勾選不購買 **{len(excl_students)}** 人（扣除 **${int(deducted):,}**）｜ 實際結算 **{buy_cnt}** 人"
+                f"目前已套用不購買 **{len(excl_students)}** 人（扣除 **${int(deducted):,}**）｜ 實際結算 **{buy_cnt}** 人"
             )
+
+            with st.form(key=f"{prefix}_form_bybook_{ver}_{selected_b_key}"):
+                st.caption("👇 請勾選所有「已自購／不購買此書」的學生，全部勾好後按下方按鈕套用（勾選過程中畫面不會跳動）：")
+                cols = st.columns(3)
+                checked_map = {}
+                for idx, s in enumerate(elig_students):
+                    sk = s["key"]
+                    chk_key = f"{prefix}_fb_{ver}_{selected_b_key}_{sk}"
+                    is_excl = (sk, selected_b_key) in active_exclusions
+                    with cols[idx % 3]:
+                        checked_map[sk] = st.checkbox(
+                            s["label"],
+                            value=is_excl,
+                            key=chk_key,
+                        )
+
+                submitted = st.form_submit_button(
+                    "✅ 勾選完畢，套用免購名單",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted:
+                updated = set(st.session_state.get(state_key, set()))
+                selected_cnt = 0
+                for sk, is_checked in checked_map.items():
+                    if is_checked:
+                        updated.add((sk, selected_b_key))
+                        selected_cnt += 1
+                    else:
+                        updated.discard((sk, selected_b_key))
+                st.session_state[state_key] = updated
+                st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+                deduct_sum = int(selected_cnt * selected_book["price"])
+                st.session_state[msg_key] = (
+                    f"✅ 已套用「{selected_book['name']}」免購設定：共 {selected_cnt} 位學生不購買（扣除 ${deduct_sum:,} 元）。"
+                )
+                _trigger_rerun()
+
             btn_col1, btn_col2, _ = st.columns([1.2, 1.2, 2])
             all_book_pairs = [(s["key"], selected_b_key) for s in elig_students]
             with btn_col1:
@@ -367,21 +408,6 @@ def render_exclusion_and_preview_section(prefix, student_records, book_records, 
                     on_click=_on_bulk_exclusions,
                     args=(state_key, ver_key, all_book_pairs, False),
                 )
-
-            st.caption("👇 請勾選「已自購／不購買此書」的學生（打勾 ＝ 去除費用）：")
-            cols = st.columns(3)
-            for idx, s in enumerate(elig_students):
-                sk = s["key"]
-                chk_key = f"{prefix}_bybook_{ver}_{selected_b_key}_{sk}"
-                is_excl = (sk, selected_b_key) in active_exclusions
-                with cols[idx % 3]:
-                    st.checkbox(
-                        s["label"],
-                        value=is_excl,
-                        key=chk_key,
-                        on_change=_on_toggle_exclusion,
-                        args=(state_key, chk_key, sk, selected_b_key),
-                    )
     else:
         student_keys = [s["key"] for s in student_records]
         student_labels = {}
@@ -398,6 +424,7 @@ def render_exclusion_and_preview_section(prefix, student_records, book_records, 
             format_func=lambda k: student_labels[k],
             key=f"{prefix}_select_student_excl",
         )
+        selected_student = student_by_key[selected_s_key]
         elig_books = plan["student_eligible"][selected_s_key]
         excl_books = plan["student_excluded"][selected_s_key]
         if not elig_books:
@@ -407,9 +434,48 @@ def render_exclusion_and_preview_section(prefix, student_records, book_records, 
             deduct_amt = sum(b["price"] for b in excl_books)
             final_amt = orig_amt - deduct_amt
             st.write(
-                f"原應繳 **${int(orig_amt):,}** ｜ 已排除 **{len(excl_books)}** 本（扣除 **${int(deduct_amt):,}**）｜ "
+                f"原應繳 **${int(orig_amt):,}** ｜ 目前已套用排除 **{len(excl_books)}** 本（扣除 **${int(deduct_amt):,}**）｜ "
                 f"實繳 **${int(final_amt):,}**"
             )
+
+            with st.form(key=f"{prefix}_form_bystu_{ver}_{selected_s_key}"):
+                st.caption("👇 請勾選這位學生所有「已自購／不購買」的書目，全部勾好後按下方按鈕套用（勾選過程中畫面不會跳動）：")
+                checked_books = {}
+                for b in elig_books:
+                    bk = b["key"]
+                    chk_key = f"{prefix}_fs_{ver}_{selected_s_key}_{bk}"
+                    is_excl = (selected_s_key, bk) in active_exclusions
+                    code_tag = f" [{b['code']}]" if b["code"] not in ["1", "", "全"] else ""
+                    checked_books[bk] = st.checkbox(
+                        f"【{b['subj']}】{b['name']}{code_tag}（${int(b['price'])}）",
+                        value=is_excl,
+                        key=chk_key,
+                    )
+
+                submitted_stu = st.form_submit_button(
+                    "✅ 勾選完畢，套用免購書目",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted_stu:
+                updated = set(st.session_state.get(state_key, set()))
+                selected_cnt = 0
+                deduct_sum = 0
+                for bk, is_checked in checked_books.items():
+                    if is_checked:
+                        updated.add((selected_s_key, bk))
+                        selected_cnt += 1
+                        deduct_sum += int(book_by_key[bk]["price"])
+                    else:
+                        updated.discard((selected_s_key, bk))
+                st.session_state[state_key] = updated
+                st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+                st.session_state[msg_key] = (
+                    f"✅ 已套用「{selected_student['label']}」免購設定：共排除 {selected_cnt} 本（扣除 ${deduct_sum:,} 元）。"
+                )
+                _trigger_rerun()
+
             btn_col1, btn_col2, _ = st.columns([1.2, 1.2, 2])
             all_stu_pairs = [(selected_s_key, b["key"]) for b in elig_books]
             with btn_col1:
@@ -425,20 +491,6 @@ def render_exclusion_and_preview_section(prefix, student_records, book_records, 
                     key=f"{prefix}_stu_clear_{selected_s_key}",
                     on_click=_on_bulk_exclusions,
                     args=(state_key, ver_key, all_stu_pairs, False),
-                )
-
-            st.caption("👇 請勾選這位學生「已自購／不購買」的書目（打勾 ＝ 去除費用）：")
-            for b in elig_books:
-                bk = b["key"]
-                chk_key = f"{prefix}_bystu_{ver}_{selected_s_key}_{bk}"
-                is_excl = (selected_s_key, bk) in active_exclusions
-                code_tag = f" [{b['code']}]" if b["code"] not in ["1", "", "全"] else ""
-                st.checkbox(
-                    f"【{b['subj']}】{b['name']}{code_tag}（${int(b['price'])}）",
-                    value=is_excl,
-                    key=chk_key,
-                    on_change=_on_toggle_exclusion,
-                    args=(state_key, chk_key, selected_s_key, bk),
                 )
 
     # 已勾選免購總覽
@@ -666,10 +718,11 @@ with tab1:
     st.divider()
 
     # 原本的核心邏輯函數
+    @st.cache_data(ttl=600, show_spinner=False)
     def get_google_sheet_xlsx_url(url):
         try:
             if "docs.google.com" not in url:
-                response = requests.head(url, allow_redirects=True)
+                response = requests.head(url, allow_redirects=True, timeout=15)
                 url = response.url
                 
             pattern = r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)'
